@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.zte.mobile"
+    android:versionCode="1"
+    android:versionName="1.0">
+
+    <!-- Android 11+ 包可见性：要能看到并启动所有 App -->
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
+
+    <application
+        android:label="PC启动选择"
+        android:allowBackup="false">
+
+        <!-- 真正的选择器 Activity -->
+        <activity
+            android:name="com.zte.mobile.PcChooserActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:theme="@android:style/Theme.DeviceDefault.Dialog.Alert" />
+
+        <!-- 关键：用 usmartlauncher 在 pc_switch_mode=0 时会显式启动的类名做别名 -->
+        <activity-alias
+            android:name="com.zte.mspice.ui.WelcomeActivity"
+            android:targetActivity="com.zte.mobile.PcChooserActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+    </application>
+</manifest>

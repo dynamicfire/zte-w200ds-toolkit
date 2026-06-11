@@ -1,0 +1,14 @@
+# 构建产物（用 ./build.sh 生成）
+PcSwitch.apk
+base.apk
+aligned.apk
+classes/
+*.dex
+
+# 签名密钥不入库
+debug.keystore
+*.keystore
+*.jks
+
+# 杂项
+.DS_Store
