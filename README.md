@@ -9,6 +9,7 @@
 
 - F9 应用选择器：**1.8**（versionCode 9）
 - APatch 默认平板模块：**1.3.0**（versionCode 4）
+- 可选 Clash Meta VPN 守护模块：**1.0.2**（versionCode 3）
 
 只在 **ZTE W200DS / Android 13 当前固件**上完成真机验证。其他批次、型号和 OTA 后的固件必须重新确认厂商组件与属性。
 
@@ -29,12 +30,15 @@
 | `com.zte.mobile` APK | 占用固件在 `pc_switch_mode=0` 时保留的固定入口，显示自定义 App 列表 |
 | APatch APM | 只覆盖开机模式选择属性，不停用 USmart Launcher |
 | 原厂 USmart Launcher / Provider | 继续负责 HOME 状态和触控、鼠标模式切换 |
+| 可选 Clash Meta Watchdog APM | 监测 Clash 自己的运行意图，并在白名单之外的意外死亡后兜底恢复 VPN 服务 |
 
-两个组件解决的问题不同：
+F9 选择器与默认平板 APM 解决的问题不同：
 
 - 只装 APK：F9 可以自定义，但开机模式选择页仍可能出现。
 - 只装 APM：开机默认平板，但没有自定义 F9 应用列表，也无法处理“云状态直接重启”。
 - 两者同时安装：得到本项目当前已验证的组合行为；具体范围和未覆盖项目见 [docs/TESTING.md](docs/TESTING.md)。
+
+Clash Meta 守护模块是独立的可选组件，不参与 F9 或 HOME 切换。当前固件上需要同时锁定 Clash 最近任务卡片，并把 Clash 精确加入中兴 `used_module=6` 的“仅移除任务”窄白名单：前者阻止第一条 Force-stop 清理链，后者阻止 Launcher 的第二条直接 `SIGKILL` 清理链。Android 的“始终开启 VPN”（不启用阻止非 VPN 连接）作为系统层保护，守护则只在 Clash for Android/Meta 自己的 `service_running.lock` 运行标记仍存在、且包未被 Force stop 时兜底恢复 `TunService`。因此应用内正常 Stop 和系统设置里的强行停止都会被尊重；只有兜底恢复时才会出现数秒断流。完整安装、验证和回滚见 [docs/CLASH-META-WATCHDOG.md](docs/CLASH-META-WATCHDOG.md)。
 
 ## 工作原理
 
@@ -155,6 +159,21 @@ build/outputs/zte-w200ds-tablet-default-apm-v1.3.0.zip.sha256
 
 模块源码和独立说明在 [apm/zte_w200ds_tablet_boot](apm/zte_w200ds_tablet_boot/)。
 
+可选的 Clash Meta VPN 守护模块使用独立构建脚本：
+
+```bash
+./scripts/build-clash-watchdog-apm.sh
+```
+
+输出位于：
+
+```text
+build/outputs/clash-meta-vpn-watchdog-w200ds-v1.0.2.zip
+build/outputs/clash-meta-vpn-watchdog-w200ds-v1.0.2.zip.sha256
+```
+
+模块源码在 [apm/clash_meta_watchdog](apm/clash_meta_watchdog/)。
+
 ## 安装
 
 1. 重新启用原厂 USmart 主 Activity。此前为了跳过开机选择而停用过它的设备尤其需要这一步：
@@ -189,7 +208,7 @@ adb shell su -c 'settings put system pc_switch_mode 0'
 
 `pc_switch_mode` 必须保持为 `0`，否则固件会绕过本选择器。
 
-## 完整回滚
+## F9 / 默认平板组合回滚
 
 先恢复安装前记录的本机原值。下面的 `RECORDED_VALUE` 只是占位符，不能原样执行：
 
@@ -208,6 +227,8 @@ adb shell su -c 'settings delete system pc_switch_mode'
 
 重启后 APatch 属性覆盖失效，原厂开机逻辑恢复。模块目录仍保留，可以在 APatch 管理器中重新启用或彻底删除。
 
+可选的 Clash Meta 守护、厂商窄白名单、最近任务锁定与 Always-on VPN 有独立回滚流程；请不要用上述 F9 命令代替。详见 [docs/CLASH-META-WATCHDOG.md](docs/CLASH-META-WATCHDOG.md#暂停卸载与回滚)。
+
 ## 已知边界
 
 - 实体 F9 短按与 `adb shell input keyevent 307` 走相同 keycode 分支；长按行为仍由固件控制，本项目没有重映射长按。
@@ -217,6 +238,8 @@ adb shell su -c 'settings delete system pc_switch_mode'
 - “可选择任意 App”只代表能启动其 LAUNCHER Activity，不保证目标 App 自身适配横屏、右键、滚轮或中兴输入映射。
 - OTA 可能替换 Launcher、Provider 或属性。升级后应重新执行 [docs/TESTING.md](docs/TESTING.md) 中的关键测试。
 - 若已有不同签名的 `com.zte.mobile`，Android 不允许直接覆盖；卸载前先确认其中是否有需要保留的数据。
+- Clash Meta 守护只能在进程被杀后重建 VPN，无法保留旧 TCP/UDP 会话；恢复窗口内会有数秒断流。
+- 守护依赖当前 Clash Meta 包名、导出的控制 Activity 和运行标记路径；升级 Clash 后应按 [docs/CLASH-META-WATCHDOG.md](docs/CLASH-META-WATCHDOG.md) 重新验证。
 
 ## 仓库结构
 
@@ -228,8 +251,11 @@ adb shell su -c 'settings delete system pc_switch_mode'
 │   ├── PcChooserActivity.java
 │   └── TabletBootReceiver.java
 ├── apm/zte_w200ds_tablet_boot/
+├── apm/clash_meta_watchdog/
 ├── scripts/build-apm.sh
+├── scripts/build-clash-watchdog-apm.sh
 ├── docs/W200DS-ADAPTATION.md
+├── docs/CLASH-META-WATCHDOG.md
 ├── docs/TESTING.md
 └── CHANGELOG.md
 ```

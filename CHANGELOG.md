@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Clash Meta VPN Watchdog 1.0.2
+
+- 加入独立的 `clash_meta_watchdog` APatch 模块源码、构建脚本和 W200DS 使用文档。
+- 形成“最近任务锁定 + `used_module=6` 精确窄白名单 + Android 始终开启 VPN + APatch 守护”四层方案；守护只在 Clash 运行标记存在且包未被 Force stop 时恢复 `TunService`。
+- 记录当前固件的双重清理链，并补充 `used_module=6` 精确包名白名单的手工配置、重启加载和按 `_id` 精确回滚流程，使正常上滑只移除任务卡片而不杀 VPN 进程。
+- 尊重 Clash 内正常 Stop、系统强行停止和模块 Action 暂停；限制重试频率并对私有事件日志做大小上限。
+- 明确恢复需要数秒并可能重置现有连接；设备诊断和验证只使用有线 USB ADB。
+
 ## 1.8.0 - 2026-08-29
 
 - 将 HOME 固化从开机广播线程移到最早约 10 秒后的私有单次 AlarmManager finalizer，避开厂商更晚的异步覆盖。

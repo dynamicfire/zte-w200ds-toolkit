@@ -1,0 +1,6 @@
+id=clash_meta_watchdog
+name=Clash Meta VPN Watchdog (ZTE W200DS)
+version=1.0.2
+versionCode=3
+author=dynamicfire device adaptation
+description=Restores Clash Meta after an unexpected ZTE recents kill, while preserving normal Stop and Force stop behavior.
