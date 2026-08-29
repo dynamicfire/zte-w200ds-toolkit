@@ -1,14 +1,29 @@
-# 构建产物（用 ./build.sh 生成）
-PcSwitch.apk
-base.apk
-aligned.apk
-classes/
+# 构建产物（用 ./build.sh 或 ./scripts/build-apm.sh 生成）
+/build/
+*.apk
+*.aab
+*.apks
+*.idsig
 *.dex
+*.class
+*.img
+*.bin
+*.log
 
-# 签名密钥不入库
-debug.keystore
+# 签名密钥绝不能入库
+/signing/
 *.keystore
 *.jks
+*.p12
+*.pfx
+*.pem
+*.key
+.env
+
+# Android Studio / 本机配置
+local.properties
+.idea/
+.gradle/
 
 # 杂项
 .DS_Store

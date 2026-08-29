@@ -1,33 +1,52 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.zte.mobile"
-    android:versionCode="1"
-    android:versionName="1.0">
+    android:versionCode="9"
+    android:versionName="1.8">
 
-    <!-- Android 11+ 包可见性：要能看到并启动所有 App -->
-    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
+    <!-- 只让系统暴露选择器实际需要查询的 LAUNCHER/HOME Activity 和原厂 Provider。 -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.HOME" />
+        </intent>
+        <provider android:authorities="com.zte.usmartlauncher.defaulthome" />
+    </queries>
+
+    <!-- 开机时安排一次受保护的 HOME 状态验证；仅精确半状态才调用原厂 Provider。 -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <application
-        android:label="PC启动选择"
-        android:allowBackup="false">
+        android:allowBackup="false"
+        android:label="F9 应用选择器"
+        android:theme="@android:style/Theme.DeviceDefault.Dialog.Alert">
 
-        <!-- 真正的选择器 Activity -->
+        <!-- 实现组件不对其他应用暴露；外部只能通过下方的固件兼容别名进入。 -->
         <activity
             android:name="com.zte.mobile.PcChooserActivity"
-            android:exported="true"
             android:excludeFromRecents="true"
-            android:theme="@android:style/Theme.DeviceDefault.Dialog.Alert" />
+            android:exported="false"
+            android:noHistory="true" />
 
-        <!-- 关键：用 usmartlauncher 在 pc_switch_mode=0 时会显式启动的类名做别名 -->
+        <!-- ZTE usmartlauncher 在 pc_switch_mode=0 时显式启动这个固定组件名。 -->
         <activity-alias
             android:name="com.zte.mspice.ui.WelcomeActivity"
-            android:targetActivity="com.zte.mobile.PcChooserActivity"
-            android:exported="true">
+            android:exported="true"
+            android:targetActivity="com.zte.mobile.PcChooserActivity" />
+
+        <!-- BOOT_COMPLETED 是系统保护广播；接收器不启动常驻服务。 -->
+        <receiver
+            android:name="com.zte.mobile.TabletBootReceiver"
+            android:enabled="true"
+            android:exported="false">
             <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
             </intent-filter>
-        </activity-alias>
+        </receiver>
 
     </application>
 </manifest>

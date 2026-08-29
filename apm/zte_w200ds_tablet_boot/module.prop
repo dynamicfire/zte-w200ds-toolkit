@@ -1,0 +1,6 @@
+id=zte_w200ds_tablet_boot
+name=ZTE W200DS Default Tablet Boot
+version=1.3.0
+versionCode=4
+author=dynamicfire
+description=Suppress the ZTE boot mode chooser while preserving the original F9 mode-switch components.
