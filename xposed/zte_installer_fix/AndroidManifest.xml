@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.dynamicfire.zte.installerfix"
+    android:versionCode="5"
+    android:versionName="1.4">
+
+    <application
+        android:allowBackup="false"
+        android:hasCode="true"
+        android:label="中兴原生安装器修复"
+        android:supportsRtl="true">
+
+        <meta-data
+            android:name="xposedmodule"
+            android:value="true" />
+        <meta-data
+            android:name="xposeddescription"
+            android:value="恢复中兴 W200DS 的悬浮安装界面，跳过失效云检测并保护源 APK" />
+        <meta-data
+            android:name="xposedminversion"
+            android:value="93" />
+    </application>
+
+</manifest>

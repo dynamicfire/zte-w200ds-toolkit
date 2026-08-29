@@ -1,15 +1,19 @@
-# ZTE W200DS：F9 自定义启动与默认平板模式
+# ZTE W200DS：F9 自定义、默认平板与系统修复
 
 这个项目保留中兴 W200DS 原厂 F9 模式切换和触控映射，同时解决两个限制：
 
 - 开机默认进入 MiFavor 平板桌面，不再强制显示“平板模式 / 云电脑模式”选择页。
 - F9 不再绑定某一个运营商云电脑，可以从自定义列表启动任意带桌面入口的远控、云电脑或串流 App。
 
+仓库同时收录彼此独立的 Clash Meta 保活方案，以及恢复悬浮原生安装界面、跳过
+失效厂商云检测并保护源 APK 的 Installer Fix。它们都不是 F9 功能的安装前提。
+
 当前组合版本：
 
 - F9 应用选择器：**1.8**（versionCode 9）
 - APatch 默认平板模块：**1.3.0**（versionCode 4）
 - 可选 Clash Meta VPN 守护模块：**1.0.2**（versionCode 3）
+- 可选 Installer Fix：**1.4**（versionCode 5）
 
 只在 **ZTE W200DS / Android 13 当前固件**上完成真机验证。其他批次、型号和 OTA 后的固件必须重新确认厂商组件与属性。
 
@@ -21,7 +25,9 @@
 - 选择任意已安装的远控或云电脑 App；列表可随时编辑并跨重启保存。
 - 再短按 F9：通过原厂状态机返回平板 HOME，同时恢复原厂输入映射。
 - 取消选择或目标 App 启动失败：提供“返回平板模式”路径。
-- 不改 system 分区，不替换厂商 APK，不需要 LSPosed。
+- 可选恢复悬浮安装确认/成功页，跳过失效厂商扫描，并保留用户源 APK。
+- 不改 system 分区，不替换厂商 APK；F9/默认平板组合不需要 LSPosed，只有可选
+  Installer Fix 需要 Vector/LSPosed。
 
 ## 组成
 
@@ -31,6 +37,7 @@
 | APatch APM | 只覆盖开机模式选择属性，不停用 USmart Launcher |
 | 原厂 USmart Launcher / Provider | 继续负责 HOME 状态和触控、鼠标模式切换 |
 | 可选 Clash Meta Watchdog APM | 监测 Clash 自己的运行意图，并在白名单之外的意外死亡后兜底恢复 VPN 服务 |
+| 可选 Installer Fix | 只 Hook `com.android.packageinstaller/0`，恢复悬浮安装流程并保护源 APK |
 
 F9 选择器与默认平板 APM 解决的问题不同：
 
@@ -39,6 +46,11 @@ F9 选择器与默认平板 APM 解决的问题不同：
 - 两者同时安装：得到本项目当前已验证的组合行为；具体范围和未覆盖项目见 [docs/TESTING.md](docs/TESTING.md)。
 
 Clash Meta 守护模块是独立的可选组件，不参与 F9 或 HOME 切换。当前固件上需要同时锁定 Clash 最近任务卡片，并把 Clash 精确加入中兴 `used_module=6` 的“仅移除任务”窄白名单：前者阻止第一条 Force-stop 清理链，后者阻止 Launcher 的第二条直接 `SIGKILL` 清理链。Android 的“始终开启 VPN”（不启用阻止非 VPN 连接）作为系统层保护，守护则只在 Clash for Android/Meta 自己的 `service_running.lock` 运行标记仍存在、且包未被 Force stop 时兜底恢复 `TunService`。因此应用内正常 Stop 和系统设置里的强行停止都会被尊重；只有兜底恢复时才会出现数秒断流。完整安装、验证和回滚见 [docs/CLASH-META-WATCHDOG.md](docs/CLASH-META-WATCHDOG.md)。
+
+Installer Fix 也是独立可选组件。它复用当前固件保留的 AOSP/CTS 安装确认 Activity，
+不替换系统安装器，也不绕过 Android 的签名、未知来源和用户确认。跳过的是中兴附加、
+但本机依赖组件已缺失的云信誉/反诈层；代价是失去这层额外风险信号。调查证据、
+作用域、真机测试和回滚见 [docs/INSTALLER-FIX.md](docs/INSTALLER-FIX.md)。
 
 ## 工作原理
 
@@ -77,7 +89,7 @@ APK 的 `BOOT_COMPLETED` 接收器会为当前开机创建一次性恢复会话�
 
 更完整的固件观察和设计取舍见 [docs/W200DS-ADAPTATION.md](docs/W200DS-ADAPTATION.md)。
 
-## 权限与安全边界
+## F9 选择器的权限与安全边界
 
 Manifest 中唯一的 Android 权限是：
 
@@ -98,7 +110,7 @@ android.permission.RECEIVE_BOOT_COMPLETED
 
 它也没有常驻服务。所选应用列表只保存在 APK 私有的 `SharedPreferences` 中。
 
-## 前提
+## F9 / 默认平板前提
 
 - 中兴 W200DS，Bootloader 已解锁。
 - 已能通过 ADB 连接。
@@ -174,7 +186,34 @@ build/outputs/clash-meta-vpn-watchdog-w200ds-v1.0.2.zip.sha256
 
 模块源码在 [apm/clash_meta_watchdog](apm/clash_meta_watchdog/)。
 
-## 安装
+## 构建 Installer Fix
+
+Installer Fix 使用同一套 JDK/Android SDK 依赖：
+
+```bash
+./scripts/build-installer-fix.sh
+```
+
+输出位于：
+
+```text
+build/outputs/zte-installer-fix-v1.4.apk
+build/outputs/zte-installer-fix-v1.4.apk.sha256
+```
+
+模块源码、签名升级注意事项和独立构建说明在
+[xposed/zte_installer_fix](xposed/zte_installer_fix/)。
+
+## 安装 Installer Fix
+
+```bash
+adb install -r build/outputs/zte-installer-fix-v1.4.apk
+```
+
+在 Vector/LSPosed 中启用后，只勾选 `com.android.packageinstaller/0`，不要勾选
+“系统框架”。强行停止一次“软件包安装程序”或重启设备后再测试安装。
+
+## 安装 F9 / 默认平板组合
 
 1. 重新启用原厂 USmart 主 Activity。此前为了跳过开机选择而停用过它的设备尤其需要这一步：
 
@@ -240,6 +279,10 @@ adb shell su -c 'settings delete system pc_switch_mode'
 - 若已有不同签名的 `com.zte.mobile`，Android 不允许直接覆盖；卸载前先确认其中是否有需要保留的数据。
 - Clash Meta 守护只能在进程被杀后重建 VPN，无法保留旧 TCP/UDP 会话；恢复窗口内会有数秒断流。
 - 守护依赖当前 Clash Meta 包名、导出的控制 Activity 和运行标记路径；升级 Clash 后应按 [docs/CLASH-META-WATCHDOG.md](docs/CLASH-META-WATCHDOG.md) 重新验证。
+- Installer Fix 依赖当前固件的私有安装器类名和资源名；系统 OTA 后必须按
+  [docs/INSTALLER-FIX.md](docs/INSTALLER-FIX.md) 重新验证，失配时应停用而不是扩大作用域。
+- Installer Fix 会移除中兴附加的云信誉/反诈结果，但不会提供替代恶意软件扫描；
+  应只安装可信来源并核验签名/哈希的 APK。
 
 ## 仓库结构
 
@@ -252,10 +295,13 @@ adb shell su -c 'settings delete system pc_switch_mode'
 │   └── TabletBootReceiver.java
 ├── apm/zte_w200ds_tablet_boot/
 ├── apm/clash_meta_watchdog/
+├── xposed/zte_installer_fix/
 ├── scripts/build-apm.sh
 ├── scripts/build-clash-watchdog-apm.sh
+├── scripts/build-installer-fix.sh
 ├── docs/W200DS-ADAPTATION.md
 ├── docs/CLASH-META-WATCHDOG.md
+├── docs/INSTALLER-FIX.md
 ├── docs/TESTING.md
 └── CHANGELOG.md
 ```

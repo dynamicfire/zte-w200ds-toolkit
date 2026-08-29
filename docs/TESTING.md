@@ -174,3 +174,51 @@ APM SHA-256:  48089547f97fffc3fe8542164a7c97222bd13c55b0564c3870fc7a21c88439ba
 - 平板状态下 `himax-touchscreen` 为 DIRECT；键盘已枚举时 `ztp_input` 的 Android input source 为鼠标 `0x2002`（POINTER）。
 
 本次最终构建尚未重新执行真正断电的冷启动、实体 F9 长按，以及必须实体操作的右键和滚轮。发布时不得把这些项目写成已完成。
+
+## 11. Installer Fix 1.4 回归
+
+Installer Fix 与 F9/APM 是独立组件。构建前确认仓库中只有源码和 compile-only
+Xposed stub，不包含系统 framework、厂商 APK/反编译树、Vector 数据库、签名密钥、
+截图或测试探针。
+
+```bash
+./scripts/build-installer-fix.sh
+"$ANDROID_SDK_ROOT/build-tools/35.0.0/apksigner" verify --verbose --print-certs \
+  build/outputs/zte-installer-fix-v1.4.apk
+"$ANDROID_SDK_ROOT/build-tools/35.0.0/aapt2" dump permissions \
+  build/outputs/zte-installer-fix-v1.4.apk
+```
+
+验收点：
+
+- Manifest 为 versionCode 5 / versionName 1.4，APK v2/v3 签名通过；
+- 模块 APK 不声明网络、存储、Root 等 Android 权限；
+- Vector 作用域只有 `com.android.packageinstaller/0`，不包含系统框架；
+- 从普通文件路径发起安装，悬浮确认页和悬浮成功页正常；
+- 从 `content://` URI 发起安装，来源应用在 `0.30` 遮罩下可见；
+- 不出现全屏 `InstallScanning`，也不再访问缺失的 HeartyService；
+- “完成”和“打开”按钮保持原行为；
+- 用户源 APK 保留，“已删除安装包和残留”文案不再显示；
+- 当前流程创建的安装器私有 staged APK 在完成后被
+  `DeleteStagedFileOnResult` 清理；不要批量删除仍可能关联旧 Session 的历史文件；
+- 停用模块并强行停止安装器后，安装路由、云检测页和窗口恢复；持久化的
+  `key_del_pkg=false` 不会自动恢复，不能把这一项记为完整回滚。
+
+2026-08-30 在 W200DS / Android 13 / 系统版本
+`MyOS13.0.29_W200DS_CMGEN`、系统安装器
+`13.0.000.000.2409021359`（versionCode 130015）上已完成上述可见流程与 staged
+清理测试。实机测试使用的
+v1.4 APK SHA-256 为：
+
+```text
+e41a49d9e8a6636297eac6b0b428fb58ff25a419929f64778b72b98ae2acf0b0
+```
+
+其签名证书 SHA-256 为：
+
+```text
+7a511fc187a9f3ccd21cc0da66ae72de0c47424b9c2a119549229fd9d485f749
+```
+
+这个 APK 哈希绑定当次构建与签名，不代表其他本地调试密钥生成的 APK。完整调查、
+安全取舍和回滚见 [INSTALLER-FIX.md](INSTALLER-FIX.md)。

@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### Installer Fix 1.4
+
+- 加入仅作用于 `com.android.packageinstaller/0` 的 Vector/LSPosed 模块源码、最小
+  compile-only Xposed stub 和可移植构建脚本。
+- 普通 APK 安装改走固件保留的 AOSP/CTS 确认流程，恢复日夜间自适应的悬浮确认框、
+  圆角背景和 `0.30` 遮罩。
+- 跳过依赖组件已缺失的全屏 `InstallScanning` 厂商云检测；对 `content://` 安装仍
+  保留 `DeleteStagedFileOnResult`，不破坏私有暂存副本清理和结果回传。
+- 只阻止厂商单一源 APK 删除函数，将 `key_del_pkg` 固定为关闭，不 Hook 通用
+  `File.delete()`。
+- 隐藏“已删除安装包和残留”误导文案，将成功页恢复为居中悬浮卡片，并保留原有
+  “完成/打开”按钮。
+- 记录 HeartyService 缺失、努比亚/中兴商店请求、Android 安装安全边界、签名升级、
+  OTA 风险、真机测试、回滚方式与持久化边界；所有设备测试均使用有线 USB ADB。
+
 ### Clash Meta VPN Watchdog 1.0.2
 
 - 加入独立的 `clash_meta_watchdog` APatch 模块源码、构建脚本和 W200DS 使用文档。

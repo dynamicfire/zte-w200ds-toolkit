@@ -27,3 +27,12 @@ local.properties
 
 # 杂项
 .DS_Store
+
+# Installer Fix 调查/构建时可能产生的设备专有文件
+/xposed/zte_installer_fix/build/
+/xposed/zte_installer_fix/signing/
+/xposed/zte_installer_fix/framework.jar
+/xposed/zte_installer_fix/framework-dex/
+/xposed/zte_installer_fix/backups/
+/xposed/zte_installer_fix/probe/
+/xposed/zte_installer_fix/*.png
