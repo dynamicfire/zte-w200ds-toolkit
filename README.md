@@ -1,6 +1,8 @@
-# ZTE W200DS：F9 自定义、默认平板与系统修复
+# ZTE W200DS 平板改造工具集
 
-这个项目保留中兴 W200DS 原厂 F9 模式切换和触控映射，同时解决两个限制：
+这个项目收录针对中兴 W200DS / P720P01 的可回滚改造、系统修复和扩展工具。项目最初只处理 F9 自定义启动，现已扩展为多个彼此独立、按需采用的组件。
+
+F9 / 默认平板组合保留原厂模式切换和触控映射，同时解决两个限制：
 
 - 开机默认进入 MiFavor 平板桌面，不再强制显示“平板模式 / 云电脑模式”选择页。
 - F9 不再绑定某一个运营商云电脑，可以从自定义列表启动任意带桌面入口的远控、云电脑或串流 App。
@@ -9,6 +11,8 @@
 Installer Fix，以及防止厂商 Google 专项省电策略在 Android VPN 活跃时误封 Play/GMS 的
 GMS Optimizer Guard。它们都不是 F9 功能的安装前提。
 
+仓库还保存通过 Termux、APatch Root 和 QEMU/KVM 运行 ARM64 Ubuntu Server 的设备端与 Mac 端管理脚本。Ubuntu VM 与 F9、VPN、安装器和 GMS 模块完全独立，不安装 VM 也不影响其他组件。
+
 当前组合版本：
 
 - F9 应用选择器：**1.8**（versionCode 9）
@@ -16,6 +20,7 @@ GMS Optimizer Guard。它们都不是 F9 功能的安装前提。
 - 可选 Clash Meta VPN 守护模块：**1.0.2**（versionCode 3）
 - 可选 Installer Fix：**1.4**（versionCode 5）
 - 可选 GMS Optimizer Guard：**0.1.0**（versionCode 1）
+- Ubuntu/KVM 工具：Ubuntu Server **26.04 LTS ARM64**，已验证 QEMU **11.0.3**
 
 各组件都只在 **ZTE W200DS / Android 13 当前固件**上完成真机验证。GMS Optimizer Guard
 还有更严格的运行门：设备必须报告内部型号 `P720P01`、SDK 33、incremental
@@ -33,6 +38,7 @@ GMS Optimizer Guard。它们都不是 F9 功能的安装前提。
 - 可选恢复悬浮安装确认/成功页，跳过失效厂商扫描，并保留用户源 APK。
 - 可选在 Clash 等 Android VPN 活跃时阻止 `zte_fw_gms` 误封 Google Play/GMS；代码设计为在
   VPN 停止后保留 30 秒切换宽限，再恢复原厂专项省电入口，该恢复门尚未完成实机验收。
+- 可选通过真实 KVM 加速运行无 GUI 的 Ubuntu Server 26.04，并从平板或 Mac 使用同一个 `u26` 中文入口启动、连接、检查和正常关机。
 - 不改 system 分区，不替换厂商 APK；F9/默认平板组合不需要 LSPosed，可选 Installer Fix
   与 GMS Optimizer Guard 需要 Vector/LSPosed，且作用域完全不同。
 
@@ -46,6 +52,7 @@ GMS Optimizer Guard。它们都不是 F9 功能的安装前提。
 | 可选 Clash Meta Watchdog APM | 监测 Clash 自己的运行意图，并在白名单之外的意外死亡后兜底恢复 VPN 服务 |
 | 可选 Installer Fix | 只 Hook `com.android.packageinstaller/0`，恢复悬浮安装流程并保护源 APK |
 | 可选 GMS Optimizer Guard | 只 Hook `system/0` 中经过精确固件门校验的 `GoogleOptimizer`，VPN 活跃时阻止 Google UID 防火墙误封 |
+| 可选 Ubuntu/KVM 工具 | 用 Root QEMU 访问原厂权限不变的 `/dev/kvm`，以 SSH-first 方式运行 ARM64 Ubuntu Server |
 
 F9 选择器与默认平板 APM 解决的问题不同：
 
@@ -69,6 +76,8 @@ Installer Fix 也是独立可选组件。它复用当前固件保留的 AOSP/CTS
 不替换系统安装器，也不绕过 Android 的签名、未知来源和用户确认。跳过的是中兴附加、
 但本机依赖组件已缺失的云信誉/反诈层；代价是失去这层额外风险信号。调查证据、
 作用域、真机测试和回滚见 [docs/INSTALLER-FIX.md](docs/INSTALLER-FIX.md)。
+
+Ubuntu/KVM 工具同样是独立可选组件。它不修改 system 分区、不放宽 SELinux 或 `/dev/kvm` 权限，也不设置开机自启；设备端和 Mac 端都使用 `u26` 作为日常入口。完整准备、私密文件边界、验收和恢复要求见 [docs/UBUNTU-KVM.md](docs/UBUNTU-KVM.md)。
 
 ## 工作原理
 
@@ -335,6 +344,7 @@ adb shell su -c 'settings delete system pc_switch_mode'
   以功能优先；无法同时冻结/封锁 GMS 又保证 Play 完全可用。
 - 当前已通过模块安全加载、15 分钟窗口、Play/GMS UID HTTP 204、Google Play 更新页/搜索/详情页；
   真实下载/更新、VPN 断开后的 30 秒恢复、70 分钟守护和 8–24 小时功耗 A/B 仍未完成。
+- Ubuntu/KVM 当前只验证 2 vCPU、1536 MiB、64 GiB 稀疏盘和 SSH-first 运行；没有 GPU 加速、自动启动或完整桌面验收。
 
 ## 仓库结构
 
@@ -352,10 +362,16 @@ adb shell su -c 'settings delete system pc_switch_mode'
 ├── scripts/build-apm.sh
 ├── scripts/build-clash-watchdog-apm.sh
 ├── scripts/build-installer-fix.sh
+├── tools/ubuntu-kvm/
+│   ├── device/
+│   ├── macos/
+│   ├── cloud-init/
+│   └── tests/
 ├── docs/W200DS-ADAPTATION.md
 ├── docs/CLASH-META-WATCHDOG.md
 ├── docs/INSTALLER-FIX.md
 ├── docs/GMS-FIREWALL-FORENSICS.md
+├── docs/UBUNTU-KVM.md
 ├── docs/TESTING.md
 └── CHANGELOG.md
 ```

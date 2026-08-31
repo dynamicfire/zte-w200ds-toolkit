@@ -298,3 +298,28 @@ af279aa3b607f744643a288db110f50f6c8abb467199b59938364161f3e513ef
 已经量化省电收益或完整验证 VPN 断开后的专项策略恢复。完整安装、救援和回滚步骤见
 [../xposed/zte_gms_optimizer_guard/INSTALL.md](../xposed/zte_gms_optimizer_guard/INSTALL.md)，规则来源见
 [GMS-FIREWALL-FORENSICS.md](GMS-FIREWALL-FORENSICS.md)。
+
+## 13. Ubuntu/KVM 工具
+
+静态门：
+
+```bash
+./tools/ubuntu-kvm/tests/check.sh
+git diff --check
+```
+
+检查必须覆盖：
+
+- macOS 脚本通过 POSIX shell 语法检查，设备脚本通过 Bash 语法检查；
+- 工具目录不含私钥、真实 SSH 公钥、known_hosts、设备序列号或本机用户路径；
+- 不跟踪 qcow2、基础镜像、seed ISO、EDK2 变量盘、快照、QMP socket、PID 或日志；
+- `config.example` 和 cloud-init 文件仍是占位模板。
+
+真实设备门必须在同一实例完成：
+
+1. 平板 Termux 的 `u26 status` 与 Mac 的 `u26 status` 都确认 Root QEMU 身份、全部线程亲和性、QMP `root:root 0600`、回环 SSH、guest `running`、`kvm` 和 64 GiB 虚拟盘。
+2. 在真实交互终端打开 `u26` 菜单并选择 `4）正常关机`；只有 `STATE=stopped`、QEMU 消失且 2222 不再监听才算通过。
+3. 再次 `u26 start`，等待 SSH 就绪后连接，确认 guest 文件持久。
+4. SELinux 仍为 Enforcing，`/dev/kvm` 仍保持原厂权限；没有新增开机自启、局域网端口或 GUI 声明。
+
+2026-09-01 在 W200DS / Android 13 / APatch 11224 / QEMU 11.0.3 上完成上述关机与重启闭环：平板菜单和 Mac 长期入口都完成正常关机验证，QEMU 在 4 秒后确认退出，随后启动在 11 秒后恢复 SSH。仓库版六个设备脚本经 SHA-256 对照后部署到 Termux，目标 owner、mode 与 SELinux 标签一致；设备与 Mac 的 `u26 status` 均返回 `running`、SSH `active`、`kvm` 和 `68719476736 bytes`。该结果只适用于记录的本机基线；没有验证 GPU 加速、完整桌面、自动启动或其他型号。

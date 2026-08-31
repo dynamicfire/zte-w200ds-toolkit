@@ -1,0 +1,363 @@
+#!/bin/sh
+set -eu
+
+CONFIG_FILE=${U26_CONFIG:-"$HOME/Library/Application Support/W200DS/ubuntu26/config"}
+ADB_BIN=${ADB_BIN:-adb}
+SSH_BIN=${SSH_BIN:-ssh}
+
+ROOT_START=/data/data/com.termux/files/home/bin/start-ubuntu26-root
+ROOT_STATUS=/data/data/com.termux/files/home/bin/status-ubuntu26-root
+
+fail() {
+  echo "$*" >&2
+  exit 1
+}
+
+load_config() {
+  [ -r "$CONFIG_FILE" ] || fail "缺少配置文件：$CONFIG_FILE"
+
+  [ -f "$CONFIG_FILE" ] || fail "配置必须是普通文件：$CONFIG_FILE"
+  [ ! -L "$CONFIG_FILE" ] || fail "配置不能是符号链接：$CONFIG_FILE"
+
+  current_uid=$(id -u)
+  config_uid=$(stat -f '%u' "$CONFIG_FILE" 2>/dev/null || true)
+  config_mode=$(stat -f '%Lp' "$CONFIG_FILE" 2>/dev/null || true)
+  [ "$config_uid" = "$current_uid" ] || fail "配置所有者不是当前用户。"
+  [ "$config_mode" = 600 ] || fail "配置权限必须是 0600，当前为 ${config_mode:-unknown}。"
+
+  # 配置是当前用户私有的 shell 赋值文件；安装时必须保持 0600。
+  # shellcheck disable=SC1090
+  . "$CONFIG_FILE"
+
+  [ -n "${ANDROID_SERIAL:-}" ] || fail "配置缺少 ANDROID_SERIAL。"
+  [ -n "${SSH_KEY:-}" ] || fail "配置缺少 SSH_KEY。"
+  [ -n "${KNOWN_HOSTS:-}" ] || fail "配置缺少 KNOWN_HOSTS。"
+
+  SSH_USER=${SSH_USER:-ubuntu}
+  LOCAL_SSH_PORT=${LOCAL_SSH_PORT:-2222}
+  GUEST_SSH_PORT=${GUEST_SSH_PORT:-2222}
+  EXPECTED_DISK_BYTES=${EXPECTED_DISK_BYTES:-68719476736}
+
+  case "$ANDROID_SERIAL" in
+    *[!A-Za-z0-9._:-]*) fail "ANDROID_SERIAL 含有不允许的字符。" ;;
+  esac
+  case "$SSH_USER" in
+    ''|*[!A-Za-z0-9._-]*) fail "SSH_USER 含有不允许的字符。" ;;
+  esac
+  case "$LOCAL_SSH_PORT:$GUEST_SSH_PORT:$EXPECTED_DISK_BYTES" in
+    *[!0-9:]*) fail "端口和 EXPECTED_DISK_BYTES 必须是十进制数字。" ;;
+  esac
+  [ "$LOCAL_SSH_PORT" -ge 1 ] && [ "$LOCAL_SSH_PORT" -le 65535 ] || fail "LOCAL_SSH_PORT 超出 1-65535。"
+  [ "$GUEST_SSH_PORT" -ge 1 ] && [ "$GUEST_SSH_PORT" -le 65535 ] || fail "GUEST_SSH_PORT 超出 1-65535。"
+  [ "$EXPECTED_DISK_BYTES" -gt 0 ] || fail "EXPECTED_DISK_BYTES 必须大于 0。"
+
+  [ -f "$SSH_KEY" ] && [ ! -L "$SSH_KEY" ] || fail "SSH 私钥必须是普通文件且不能是符号链接：$SSH_KEY"
+  [ -f "$KNOWN_HOSTS" ] && [ ! -L "$KNOWN_HOSTS" ] || fail "known_hosts 必须是普通文件且不能是符号链接：$KNOWN_HOSTS"
+
+  key_uid=$(stat -f '%u' "$SSH_KEY" 2>/dev/null || true)
+  key_mode=$(stat -f '%Lp' "$SSH_KEY" 2>/dev/null || true)
+  [ "$key_uid" = "$current_uid" ] || fail "SSH 私钥所有者不是当前用户。"
+  case "$key_mode" in
+    400|600) ;;
+    *) fail "SSH 私钥权限必须是 0400 或 0600，当前为 ${key_mode:-unknown}。" ;;
+  esac
+
+  known_hosts_uid=$(stat -f '%u' "$KNOWN_HOSTS" 2>/dev/null || true)
+  known_hosts_mode=$(stat -f '%Lp' "$KNOWN_HOSTS" 2>/dev/null || true)
+  [ "$known_hosts_uid" = "$current_uid" ] || fail "known_hosts 所有者不是当前用户。"
+  case "$known_hosts_mode" in
+    600|644) ;;
+    *) fail "known_hosts 权限必须是 0600 或 0644，当前为 ${known_hosts_mode:-unknown}。" ;;
+  esac
+  case "$KNOWN_HOSTS" in
+    *\"*|*\\*|*%*) fail "known_hosts 路径不能含双引号、反斜杠或 %。" ;;
+  esac
+
+  # OpenSSH 会再次解析 -o 的值；把引号作为选项内容传入，才能保留路径中的空格。
+  SSH_KNOWN_HOSTS_OPTION="UserKnownHostsFile=\"$KNOWN_HOSTS\""
+
+  command -v "$ADB_BIN" >/dev/null 2>&1 || fail "找不到 adb。"
+  command -v "$SSH_BIN" >/dev/null 2>&1 || fail "找不到 ssh。"
+}
+
+require_device() {
+  state=$("$ADB_BIN" -s "$ANDROID_SERIAL" get-state 2>/dev/null || true)
+  [ "$state" = device ] || fail "目标平板未通过 ADB 连接或尚未授权。"
+}
+
+ensure_forward() {
+  forward_list=$("$ADB_BIN" forward --list) || return 1
+  forward_conflict=$(printf '%s\n' "$forward_list" | awk \
+    -v serial="$ANDROID_SERIAL" -v local_port="tcp:$LOCAL_SSH_PORT" -v guest_port="tcp:$GUEST_SSH_PORT" \
+    '$2 == local_port && ($1 != serial || $3 != guest_port) { print }')
+
+  if [ -n "$forward_conflict" ]; then
+    echo "Mac 本机 tcp:$LOCAL_SSH_PORT 已被其他 ADB 转发占用：$forward_conflict" >&2
+    return 1
+  fi
+
+  if printf '%s\n' "$forward_list" | awk \
+    -v serial="$ANDROID_SERIAL" -v local_port="tcp:$LOCAL_SSH_PORT" -v guest_port="tcp:$GUEST_SSH_PORT" \
+    '$1 == serial && $2 == local_port && $3 == guest_port { print }' | grep -q .; then
+    return 0
+  fi
+
+  "$ADB_BIN" -s "$ANDROID_SERIAL" forward --no-rebind \
+    "tcp:$LOCAL_SSH_PORT" "tcp:$GUEST_SSH_PORT" >/dev/null
+}
+
+ssh_probe() {
+  "$SSH_BIN" \
+    -i "$SSH_KEY" \
+    -p "$LOCAL_SSH_PORT" \
+    -o BatchMode=yes \
+    -o IdentitiesOnly=yes \
+    -o ConnectTimeout=2 \
+    -o StrictHostKeyChecking=yes \
+    -o "$SSH_KNOWN_HOSTS_OPTION" \
+    "$SSH_USER@127.0.0.1" true >/dev/null 2>&1
+}
+
+wait_for_ssh() {
+  second=1
+  while [ "$second" -le 60 ]; do
+    if ssh_probe; then
+      echo "Ubuntu 26.04 已就绪（${second}s）。"
+      return 0
+    fi
+    sleep 1
+    second=$((second + 1))
+  done
+
+  echo "QEMU 已启动，但 60 秒内 SSH 未就绪；请运行：u26 status" >&2
+  return 1
+}
+
+capture_root_status() {
+  set +e
+  ROOT_STATUS_OUTPUT=$("$ADB_BIN" -s "$ANDROID_SERIAL" shell "su -c '$ROOT_STATUS'" 2>&1)
+  ROOT_STATUS_RC=$?
+  set -e
+
+  case "$ROOT_STATUS_RC" in
+    0|10|20)
+      case "$ROOT_STATUS_OUTPUT" in
+        STATE=running*) ROOT_STATUS_STATE=running ;;
+        STATE=stopped*) ROOT_STATUS_STATE=stopped ;;
+        STATE=unknown*) ROOT_STATUS_STATE=unknown ;;
+        *) ROOT_STATUS_STATE=error ;;
+      esac
+      ;;
+    *) ROOT_STATUS_STATE=error ;;
+  esac
+}
+
+start_guest() {
+  require_device
+  "$ADB_BIN" -s "$ANDROID_SERIAL" shell "su -c '$ROOT_START'"
+  ensure_forward
+  wait_for_ssh
+}
+
+connect_guest() {
+  require_device
+  ensure_forward
+  exec "$SSH_BIN" \
+    -i "$SSH_KEY" \
+    -p "$LOCAL_SSH_PORT" \
+    -o IdentitiesOnly=yes \
+    -o StrictHostKeyChecking=yes \
+    -o "$SSH_KNOWN_HOSTS_OPTION" \
+    -o ServerAliveInterval=30 \
+    "$SSH_USER@127.0.0.1"
+}
+
+show_guest_status() {
+  "$SSH_BIN" \
+    -i "$SSH_KEY" \
+    -p "$LOCAL_SSH_PORT" \
+    -o BatchMode=yes \
+    -o IdentitiesOnly=yes \
+    -o ConnectTimeout=5 \
+    -o StrictHostKeyChecking=yes \
+    -o "$SSH_KNOWN_HOSTS_OPTION" \
+    "$SSH_USER@127.0.0.1" \
+    "set -eu
+     ubuntu_state=\$(systemctl is-system-running)
+     ssh_state=\$(systemctl is-active ssh)
+     virt_type=\$(systemd-detect-virt)
+     disk_bytes=\$(lsblk -bdn -o SIZE /dev/vda | tr -d '[:space:]')
+     root_status=\$(findmnt -no SIZE,AVAIL,USE% /)
+     test \"\$ubuntu_state\" = running
+     test \"\$ssh_state\" = active
+     test \"\$virt_type\" = kvm
+     test \"\$disk_bytes\" = '$EXPECTED_DISK_BYTES'
+     printf 'Ubuntu：%s\\nSSH：%s\\n虚拟化：%s\\n虚拟盘：%s bytes\\n根分区：%s\\n' \
+       \"\$ubuntu_state\" \"\$ssh_state\" \"\$virt_type\" \"\$disk_bytes\" \"\$root_status\""
+}
+
+show_status() {
+  require_device
+  capture_root_status
+  printf '%s\n' "$ROOT_STATUS_OUTPUT"
+
+  case "$ROOT_STATUS_STATE" in
+    running)
+      ensure_forward
+      show_guest_status
+      ;;
+    stopped)
+      return 0
+      ;;
+    unknown)
+      echo "状态未知；请不要启动、强制停止或操作虚拟磁盘。" >&2
+      return 1
+      ;;
+    *)
+      echo "Root 状态检查失败（rc=${ROOT_STATUS_RC}），且没有可信的 STATE 标记。" >&2
+      return 1
+      ;;
+  esac
+}
+
+send_poweroff() {
+  "$SSH_BIN" \
+    -i "$SSH_KEY" \
+    -p "$LOCAL_SSH_PORT" \
+    -o BatchMode=yes \
+    -o IdentitiesOnly=yes \
+    -o ConnectTimeout=10 \
+    -o StrictHostKeyChecking=yes \
+    -o "$SSH_KNOWN_HOSTS_OPTION" \
+    "$SSH_USER@127.0.0.1" \
+    'sudo -n systemctl --no-block poweroff'
+}
+
+stop_guest() {
+  require_device
+  capture_root_status
+  case "$ROOT_STATUS_STATE" in
+    stopped)
+      printf '%s\n' "$ROOT_STATUS_OUTPUT"
+      echo "Ubuntu 已经处于关闭状态。"
+      return 0
+      ;;
+    running) ;;
+    unknown)
+      printf '%s\n' "$ROOT_STATUS_OUTPUT" >&2
+      echo "状态未知，拒绝发送关机命令。" >&2
+      return 1
+      ;;
+    *)
+      printf '%s\n' "$ROOT_STATUS_OUTPUT" >&2
+      echo "Root 状态检查失败，拒绝发送关机命令。" >&2
+      return 1
+      ;;
+  esac
+
+  ensure_forward
+  if send_poweroff; then
+    echo "已发送正常关机命令；正在独立核对 QEMU 是否退出。"
+  else
+    request_rc=$?
+    echo "SSH 关机请求返回码=${request_rc}；仍将以 QEMU 是否完整退出作为最终结果。" >&2
+  fi
+
+  second=1
+  last_status="尚未完成第一次 Root 状态复核"
+  while [ "$second" -le 30 ]; do
+    capture_root_status
+    case "$ROOT_STATUS_STATE" in
+      stopped)
+        printf '%s\n' "$ROOT_STATUS_OUTPUT"
+        "$ADB_BIN" -s "$ANDROID_SERIAL" forward --remove "tcp:$LOCAL_SSH_PORT" >/dev/null 2>&1 || true
+        echo "Ubuntu 已正常关机；QEMU 在 ${second}s 后确认退出。"
+        return 0
+        ;;
+      running|unknown) last_status="$ROOT_STATUS_OUTPUT" ;;
+      *) last_status="Root 状态检查失败（rc=${ROOT_STATUS_RC}）：$ROOT_STATUS_OUTPUT" ;;
+    esac
+    sleep 1
+    second=$((second + 1))
+  done
+
+  echo "30 秒内未能可靠确认 QEMU 退出，最终状态未知。" >&2
+  printf '%s\n' "$last_status" >&2
+  return 1
+}
+
+show_help() {
+  cat <<'EOF'
+W200DS Ubuntu 26.04 管理命令（macOS）
+
+  u26             打开中文菜单
+  u26 go          启动并进入 Ubuntu
+  u26 start       只启动 Ubuntu
+  u26 connect     连接到已运行的 Ubuntu
+  u26 status      查看状态
+  u26 stop        正常关机
+
+也支持中文参数：进入、启动、连接、状态、关机。
+EOF
+}
+
+show_menu() {
+  printf '%s\n' \
+    "" \
+    "W200DS Ubuntu Server 26.04（Mac）" \
+    "  1) 启动并进入" \
+    "  2) 连接到已运行的 Ubuntu" \
+    "  3) 查看状态" \
+    "  4) 正常关机" \
+    "  5) 退出" \
+    ""
+  printf '请选择 [1-5]：'
+  IFS= read -r menu_choice
+  case "$menu_choice" in
+    1) start_guest; connect_guest ;;
+    2) connect_guest ;;
+    3) show_status ;;
+    4) stop_guest ;;
+    5) return 0 ;;
+    *) echo "无效选择。" >&2; return 2 ;;
+  esac
+}
+
+command_name=${1:-}
+case "$command_name" in
+  help|-h|--help|帮助)
+    show_help
+    exit 0
+    ;;
+  '')
+    if ! [ -t 0 ] || ! [ -t 1 ]; then
+      show_help
+      exit 0
+    fi
+    ;;
+esac
+
+load_config
+
+case "$command_name" in
+  '')
+    if [ -t 0 ] && [ -t 1 ]; then
+      show_menu
+    else
+      show_help
+    fi
+    ;;
+  go|进入)
+    start_guest
+    connect_guest
+    ;;
+  start|启动) start_guest ;;
+  connect|ssh|连接) connect_guest ;;
+  status|状态) show_status ;;
+  stop|关机) stop_guest ;;
+  *)
+    echo "未知参数：$command_name" >&2
+    show_help >&2
+    exit 2
+    ;;
+esac

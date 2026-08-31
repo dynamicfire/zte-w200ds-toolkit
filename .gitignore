@@ -10,6 +10,31 @@
 *.bin
 *.log
 
+# Ubuntu/KVM 的磁盘、固件变量、seed、运行态和本机身份
+*.qcow2
+*.iso
+*.fd
+*.raw
+*.snap
+*.sock
+*.pid
+*.before-*
+known_hosts*
+*_ed25519*
+config.local
+/tools/ubuntu-kvm/local/
+/tools/ubuntu-kvm/state/
+/tools/ubuntu-kvm/secrets/
+/tools/ubuntu-kvm/artifacts/
+/tools/ubuntu-kvm/work/
+/tools/ubuntu-kvm/**/*.lock
+/tools/ubuntu-kvm/**/config
+/tools/ubuntu-kvm/**/authorized_keys
+/tools/ubuntu-kvm/**/id_*
+/tools/ubuntu-kvm/cloud-init/user-data
+/tools/ubuntu-kvm/cloud-init/meta-data
+/tools/ubuntu-kvm/cloud-init/network-config
+
 # 签名密钥绝不能入库
 /signing/
 *.keystore

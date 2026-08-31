@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Ubuntu/KVM 工具
+
+- 加入 W200DS 在 Termux + APatch Root + QEMU/KVM 下运行 Ubuntu Server 26.04 ARM64 的可重建设备端脚本、NoCloud 模板和完整安全说明。
+- 平板与 macOS 都提供统一的 `u26` 中文入口，支持启动并进入、连接、状态和正常关机；Mac 的 ADB 序列号、SSH 私钥和 known_hosts 只从仓库外的 0600 私有配置读取。
+- 状态门同时核对 QEMU 进程身份、CPU 亲和性、QMP 权限、回环 SSH 转发和 guest KVM/磁盘；关机只在明确确认 `STATE=stopped` 后成功。
+- 增加静态秘密/身份扫描，禁止 qcow2、镜像、seed ISO、UEFI 变量盘、私钥、known_hosts、真实序列号和本机路径进入工具目录。
+
 ### GMS Optimizer Guard 0.1.0
 
 - 加入只作用于精确 P720P01 Android 13 固件 `system/0` 的 Vector/Xposed 模块源码、

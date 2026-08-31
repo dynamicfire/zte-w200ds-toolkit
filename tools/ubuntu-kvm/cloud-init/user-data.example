@@ -1,0 +1,26 @@
+#cloud-config
+hostname: w200ds-ubuntu26
+manage_etc_hosts: true
+timezone: Asia/Shanghai
+ssh_pwauth: false
+disable_root: true
+ssh_deletekeys: true
+package_update: false
+package_upgrade: false
+growpart:
+  mode: auto
+  devices: ['/']
+resize_rootfs: true
+users:
+  - name: ubuntu
+    gecos: Ubuntu
+    groups: [adm, sudo]
+    shell: /bin/bash
+    lock_passwd: true
+    # 方便无密码执行关机和日常管理，但 SSH 密钥失守也会直接暴露 guest root。
+    # 不接受该风险时，请删除此行并为用户设置独立密码或更窄的 sudoers 规则。
+    sudo: "ALL=(ALL) NOPASSWD:ALL"
+    ssh_authorized_keys:
+      - REPLACE_WITH_MAC_PUBLIC_KEY
+      - REPLACE_WITH_TERMUX_PUBLIC_KEY
+final_message: "Ubuntu cloud-init completed after $UPTIME seconds"
