@@ -222,3 +222,79 @@ e41a49d9e8a6636297eac6b0b428fb58ff25a419929f64778b72b98ae2acf0b0
 
 这个 APK 哈希绑定当次构建与签名，不代表其他本地调试密钥生成的 APK。完整调查、
 安全取舍和回滚见 [INSTALLER-FIX.md](INSTALLER-FIX.md)。
+
+## 12. GMS Optimizer Guard 0.1.0 回归
+
+该模块与 F9、默认平板 APM、Clash Watchdog 和 Installer Fix 都是独立组件。源码只匹配
+SDK 33、incremental `20250218.231611` 与以下完整 fingerprint：
+
+```text
+ZTE/CN_P720P01/P720P01:13/TP1A.220624.014/20250218.231611:user/release-keys
+```
+
+### 静态构建门
+
+```bash
+cd xposed/zte_gms_optimizer_guard
+gradle --offline clean testDebugUnitTest lintRelease assembleRelease
+./tools/verify-release.sh app/build/outputs/apk/release/app-release.apk
+```
+
+若依赖尚未缓存，首次构建去掉 `--offline`，只从项目声明的 Google/Maven Central/Gradle Plugin
+Portal 解析 AGP 8.7.3 与 JUnit 4.13.2。验收必须确认：
+
+- 4 个策略/固件门测试全部通过；
+- lint 0 error；固定 SDK、无界面/图标等设备专用 warning 可记录但不能隐藏；
+- APK 只有一个 `classes.dex`，legacy `assets/xposed_init` 入口位于主 DEX；
+- compile-only `de.robv.android.xposed.*` stub 没有被打进 APK；
+- 无权限、Activity、Service、Receiver 或 Provider，且 APK 非 debuggable；
+- 签名有效；覆盖设备上已有 v0.1.0 时必须继续使用同一证书。
+
+仓库卫生还应额外检查：
+
+```bash
+git ls-files | grep -E '(^|/)(\.gradle|build)/|(^|/)local\.properties$|\.(apk|aab|apks|idsig|dex|class|jar|keystore|jks|p12|pfx|pem|key)$'
+```
+
+期望不出现 GMS Guard 的构建目录、APK、签名、系统 `services.jar`、反编译树、Vector 数据库、
+测试 UI dump 或其他实机取证文件。
+
+### 当前真机证据
+
+2026-08-31 在上述精确固件、Vector 2.2 / 3080 / API 102、唯一作用域 `system/0` 上已确认：
+
+- 模块包 `io.github.dynamicfire.zte.gmsoptimizerguard` v0.1.0 安装并启用；
+- 重启约 28 秒完成，`system_server` 同一 PID 稳定超过 15 分钟，无 system_server fatal、
+  Watchdog/ANR、partial rollback 或 callback retries exhausted；
+- 新增由 UID 1000 注册的 VPN-only `NetworkRequest`，与模块
+  `clearCapabilities().addTransportType(TRANSPORT_VPN)` 路径一致；
+- Clash Android VPN 和 `latchsky_enable=1` 同时成立时，IPv4/IPv6 `zte_fw_gms` 均保持
+  `RETURN`，15 分钟厂商任务窗口没有重新生成 Play/GMS UID DROP；
+- Play UID 10205 请求 `play.googleapis.com/generate_204`、GMS UID 10235 请求
+  `android.clients.google.com/generate_204` 均收到 HTTP 204，并经 Clash Fake-IP 完成；
+- Google Play 更新页、`YouTube` 搜索结果和应用详情页均正常加载，没有离线/重试提示；
+- 未点击安装，没有下载/更新应用，也没有更改 Google 账号；
+- 屏幕关闭时 OEM 通用 CPU freezer 仍会冻结 Play UID，亮屏后因 `screen_on` 解冻，证明模块
+  没有关闭整套后台省电，但这不能替代耗电测量。
+
+当次实机候选 APK SHA-256：
+
+```text
+af279aa3b607f744643a288db110f50f6c8abb467199b59938364161f3e513ef
+```
+
+该哈希绑定当次本地测试签名和 ZIP 元数据，仓库不提交 APK。后续重新构建只应比较源码版本、
+签名身份和静态结构，不能要求不同构建环境生成相同 APK 哈希。
+
+### 尚未完成
+
+- Play 真实下载/更新与后台恢复；
+- 连续切换节点十次的 30 秒宽限回归；
+- VPN 关闭超过宽限后重新进入原厂 `updateCheckStrategy()`；
+- 30/60 分钟厂商任务和 70 分钟持续 VPN 守护；
+- 同等负载下 8–24 小时 GMS wakelock、CPU、闹钟及待机掉电 A/B。
+
+在这些项目完成前，只能声称当前模块阻止了 VPN 活跃时的误封并保留普通省电机制，不能声称
+已经量化省电收益或完整验证 VPN 断开后的专项策略恢复。完整安装、救援和回滚步骤见
+[../xposed/zte_gms_optimizer_guard/INSTALL.md](../xposed/zte_gms_optimizer_guard/INSTALL.md)，规则来源见
+[GMS-FIREWALL-FORENSICS.md](GMS-FIREWALL-FORENSICS.md)。

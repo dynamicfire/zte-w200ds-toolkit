@@ -1,0 +1,48 @@
+plugins {
+    id "com.android.application"
+}
+
+android {
+    namespace "io.github.dynamicfire.zte.gmsoptimizerguard"
+    compileSdk 33
+
+    defaultConfig {
+        applicationId "io.github.dynamicfire.zte.gmsoptimizerguard"
+        minSdk 26
+        targetSdk 33
+        versionCode 1
+        versionName "0.1.0"
+    }
+
+    buildTypes {
+        debug {
+            minifyEnabled false
+        }
+        release {
+            // A signed, non-debuggable single-dex artifact is safer for legacy Xposed loaders.
+            signingConfig signingConfigs.debug
+            minifyEnabled true
+            shrinkResources false
+            proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_11
+        targetCompatibility JavaVersion.VERSION_11
+    }
+
+    testOptions {
+        unitTests.returnDefaultValues = true
+    }
+
+    lint {
+        abortOnError true
+        checkReleaseBuilds true
+    }
+}
+
+dependencies {
+    compileOnly project(":xposed-api-stubs")
+    testImplementation "junit:junit:4.13.2"
+}

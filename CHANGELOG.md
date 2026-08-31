@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### GMS Optimizer Guard 0.1.0
+
+- 加入只作用于精确 P720P01 Android 13 固件 `system/0` 的 Vector/Xposed 模块源码、
+  4 个策略/固件门单元测试、最小 compile-only stub 和 APK 静态 verifier。
+- 取证确认 `zte_fw_gms` 来自 `system_server` 内的 ZTE `GoogleOptimizer`，不是 Clash、
+  节点或 AOSP 标准防火墙；补充完整规则来源、执行通道和设计缺陷报告。
+- Android VPN 活跃和断开后的 30 秒宽限期间，取消残留可达性任务并阻止
+  `optimize(0)` 重新写入 Play/GMS UID DROP；VPN 长期关闭时恢复原厂专项省电入口。
+- 加入 SDK、fingerprint、incremental 和私有类结构双重门，hook 安装失败回滚、VPN callback
+  有限重试及 fail-open，避免 OTA 或异常时把未知固件带入 `system_server` 补丁路径。
+- 实机通过模块加载、15 分钟厂商任务窗口、Play/GMS UID HTTP 204，以及 Google Play
+  更新页、搜索和详情页；下载/更新、VPN 断开恢复、70 分钟和长期功耗仍明确列为未验收。
+
 ### Installer Fix 1.4
 
 - 加入仅作用于 `com.android.packageinstaller/0` 的 Vector/LSPosed 模块源码、最小

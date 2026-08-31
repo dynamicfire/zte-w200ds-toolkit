@@ -5,8 +5,9 @@
 - 开机默认进入 MiFavor 平板桌面，不再强制显示“平板模式 / 云电脑模式”选择页。
 - F9 不再绑定某一个运营商云电脑，可以从自定义列表启动任意带桌面入口的远控、云电脑或串流 App。
 
-仓库同时收录彼此独立的 Clash Meta 保活方案，以及恢复悬浮原生安装界面、跳过
-失效厂商云检测并保护源 APK 的 Installer Fix。它们都不是 F9 功能的安装前提。
+仓库同时收录彼此独立的 Clash Meta 保活方案、恢复悬浮原生安装界面并保护源 APK 的
+Installer Fix，以及防止厂商 Google 专项省电策略在 Android VPN 活跃时误封 Play/GMS 的
+GMS Optimizer Guard。它们都不是 F9 功能的安装前提。
 
 当前组合版本：
 
@@ -14,8 +15,12 @@
 - APatch 默认平板模块：**1.3.0**（versionCode 4）
 - 可选 Clash Meta VPN 守护模块：**1.0.2**（versionCode 3）
 - 可选 Installer Fix：**1.4**（versionCode 5）
+- 可选 GMS Optimizer Guard：**0.1.0**（versionCode 1）
 
-只在 **ZTE W200DS / Android 13 当前固件**上完成真机验证。其他批次、型号和 OTA 后的固件必须重新确认厂商组件与属性。
+各组件都只在 **ZTE W200DS / Android 13 当前固件**上完成真机验证。GMS Optimizer Guard
+还有更严格的运行门：设备必须报告内部型号 `P720P01`、SDK 33、incremental
+`20250218.231611` 和源码中固定的完整 fingerprint；任一项不符都会保持不挂钩。其他批次、
+型号和 OTA 后的固件必须重新确认厂商组件与属性。
 
 ## 最终效果
 
@@ -26,8 +31,10 @@
 - 再短按 F9：通过原厂状态机返回平板 HOME，同时恢复原厂输入映射。
 - 取消选择或目标 App 启动失败：提供“返回平板模式”路径。
 - 可选恢复悬浮安装确认/成功页，跳过失效厂商扫描，并保留用户源 APK。
-- 不改 system 分区，不替换厂商 APK；F9/默认平板组合不需要 LSPosed，只有可选
-  Installer Fix 需要 Vector/LSPosed。
+- 可选在 Clash 等 Android VPN 活跃时阻止 `zte_fw_gms` 误封 Google Play/GMS；代码设计为在
+  VPN 停止后保留 30 秒切换宽限，再恢复原厂专项省电入口，该恢复门尚未完成实机验收。
+- 不改 system 分区，不替换厂商 APK；F9/默认平板组合不需要 LSPosed，可选 Installer Fix
+  与 GMS Optimizer Guard 需要 Vector/LSPosed，且作用域完全不同。
 
 ## 组成
 
@@ -38,6 +45,7 @@
 | 原厂 USmart Launcher / Provider | 继续负责 HOME 状态和触控、鼠标模式切换 |
 | 可选 Clash Meta Watchdog APM | 监测 Clash 自己的运行意图，并在白名单之外的意外死亡后兜底恢复 VPN 服务 |
 | 可选 Installer Fix | 只 Hook `com.android.packageinstaller/0`，恢复悬浮安装流程并保护源 APK |
+| 可选 GMS Optimizer Guard | 只 Hook `system/0` 中经过精确固件门校验的 `GoogleOptimizer`，VPN 活跃时阻止 Google UID 防火墙误封 |
 
 F9 选择器与默认平板 APM 解决的问题不同：
 
@@ -46,6 +54,16 @@ F9 选择器与默认平板 APM 解决的问题不同：
 - 两者同时安装：得到本项目当前已验证的组合行为；具体范围和未覆盖项目见 [docs/TESTING.md](docs/TESTING.md)。
 
 Clash Meta 守护模块是独立的可选组件，不参与 F9 或 HOME 切换。当前固件上需要同时锁定 Clash 最近任务卡片，并把 Clash 精确加入中兴 `used_module=6` 的“仅移除任务”窄白名单：前者阻止第一条 Force-stop 清理链，后者阻止 Launcher 的第二条直接 `SIGKILL` 清理链。Android 的“始终开启 VPN”（不启用阻止非 VPN 连接）作为系统层保护，守护则只在 Clash for Android/Meta 自己的 `service_running.lock` 运行标记仍存在、且包未被 Force stop 时兜底恢复 `TunService`。因此应用内正常 Stop 和系统设置里的强行停止都会被尊重；只有兜底恢复时才会出现数秒断流。完整安装、验证和回滚见 [docs/CLASH-META-WATCHDOG.md](docs/CLASH-META-WATCHDOG.md)。
+
+GMS Optimizer Guard 也是独立可选组件。取证确认 `zte_fw_gms` 由运行在 `system_server`
+中的 ZTE `GoogleOptimizer` 创建：它会把非 HTTP/TLS 的 Google 可达性判断直接转换成
+Play/GMS UID 的 IPv4/IPv6 `OUTPUT` DROP，因而可能在 Clash 节点本身正常时把 Google Play
+长期封死。模块仅在 Android VPN 活跃及断开后的 30 秒宽限内让厂商策略保持放行；VPN 长期
+关闭时重新进入原厂决策入口，普通 Doze、App Standby 和其他应用的后台策略不受影响。
+这是高风险的 `system_server` Hook，唯一作用域必须是 `system/0`，不是 `android/0`。
+完整策略、安装、真机证据和回滚见
+[xposed/zte_gms_optimizer_guard/INSTALL.md](xposed/zte_gms_optimizer_guard/INSTALL.md)，规则来源见
+[docs/GMS-FIREWALL-FORENSICS.md](docs/GMS-FIREWALL-FORENSICS.md)。
 
 Installer Fix 也是独立可选组件。它复用当前固件保留的 AOSP/CTS 安装确认 Activity，
 不替换系统安装器，也不绕过 Android 的签名、未知来源和用户确认。跳过的是中兴附加、
@@ -204,6 +222,27 @@ build/outputs/zte-installer-fix-v1.4.apk.sha256
 模块源码、签名升级注意事项和独立构建说明在
 [xposed/zte_installer_fix](xposed/zte_installer_fix/)。
 
+## 构建 GMS Optimizer Guard
+
+该模块保持为独立 Gradle 子项目，需要 JDK 17 或 21、Gradle 8.9、Android SDK 33，首次构建
+还需要解析 Android Gradle Plugin 8.7.3 和 JUnit 4.13.2：
+
+```bash
+export ANDROID_SDK_ROOT="$HOME/Library/Android/sdk"  # macOS 示例；Linux 按实际路径设置
+cd xposed/zte_gms_optimizer_guard
+gradle clean testDebugUnitTest lintRelease assembleRelease
+./tools/verify-release.sh app/build/outputs/apk/release/app-release.apk
+```
+
+已缓存依赖时可增加 `--offline`。输出位于：
+
+```text
+xposed/zte_gms_optimizer_guard/app/build/outputs/apk/release/app-release.apk
+```
+
+当前 release 变体仍使用本机 Android debug key，只适合本地侧载；覆盖升级必须使用与设备上
+现有模块相同的签名，密钥和 APK 都不得提交仓库。
+
 ## 安装 Installer Fix
 
 ```bash
@@ -212,6 +251,13 @@ adb install -r build/outputs/zte-installer-fix-v1.4.apk
 
 在 Vector/LSPosed 中启用后，只勾选 `com.android.packageinstaller/0`，不要勾选
 “系统框架”。强行停止一次“软件包安装程序”或重启设备后再测试安装。
+
+## 安装 GMS Optimizer Guard
+
+这是 `system_server` 模块，错误作用域或固件失配的风险明显高于普通应用模块。安装前必须准备
+Android 安全模式或 recovery 救援路径，并逐项核对 fingerprint、Vector 状态、签名和 APK 哈希。
+唯一正确作用域是 `system/0`。不要把根 README 的简述当作执行清单；请完整遵循
+[xposed/zte_gms_optimizer_guard/INSTALL.md](xposed/zte_gms_optimizer_guard/INSTALL.md)。
 
 ## 安装 F9 / 默认平板组合
 
@@ -283,6 +329,12 @@ adb shell su -c 'settings delete system pc_switch_mode'
   [docs/INSTALLER-FIX.md](docs/INSTALLER-FIX.md) 重新验证，失配时应停用而不是扩大作用域。
 - Installer Fix 会移除中兴附加的云信誉/反诈结果，但不会提供替代恶意软件扫描；
   应只安装可信来源并核验签名/哈希的 APK。
+- GMS Optimizer Guard 只识别 Android `VpnService` 暴露的 VPN transport；未注册为 Android VPN
+  的 root TUN/TProxy 不在当前检测范围。
+- GMS Optimizer Guard 会在 VPN 活跃时暂停 Google 专项网络 DROP、特殊闹钟对齐和相关冻结，
+  以功能优先；无法同时冻结/封锁 GMS 又保证 Play 完全可用。
+- 当前已通过模块安全加载、15 分钟窗口、Play/GMS UID HTTP 204、Google Play 更新页/搜索/详情页；
+  真实下载/更新、VPN 断开后的 30 秒恢复、70 分钟守护和 8–24 小时功耗 A/B 仍未完成。
 
 ## 仓库结构
 
@@ -296,12 +348,14 @@ adb shell su -c 'settings delete system pc_switch_mode'
 ├── apm/zte_w200ds_tablet_boot/
 ├── apm/clash_meta_watchdog/
 ├── xposed/zte_installer_fix/
+├── xposed/zte_gms_optimizer_guard/
 ├── scripts/build-apm.sh
 ├── scripts/build-clash-watchdog-apm.sh
 ├── scripts/build-installer-fix.sh
 ├── docs/W200DS-ADAPTATION.md
 ├── docs/CLASH-META-WATCHDOG.md
 ├── docs/INSTALLER-FIX.md
+├── docs/GMS-FIREWALL-FORENSICS.md
 ├── docs/TESTING.md
 └── CHANGELOG.md
 ```
