@@ -1,159 +1,91 @@
 # ZTE W200DS 平板改造工具集
 
-这个项目收录针对中兴 W200DS / P720P01 的可回滚改造、系统修复和扩展工具。项目最初只处理 F9 自定义启动，现已扩展为多个彼此独立、按需采用的组件。
+这个仓库最早只是为了把 W200DS 的 F9 从固定云电脑入口改成自选应用，后来又陆续加进了默认平板启动、Clash 保活、安装器修复、GMS 网络修复和 Ubuntu/KVM 工具。
 
-F9 / 默认平板组合保留原厂模式切换和触控映射，同时解决两个限制：
+它不是一个必须整套安装的“全家桶”。如果你只想改 F9，看 F9 选择器和默认平板 APM 就够了；其他模块互不依赖，按需安装。
 
-- 开机默认进入 MiFavor 平板桌面，不再强制显示“平板模式 / 云电脑模式”选择页。
-- F9 不再绑定某一个运营商云电脑，可以从自定义列表启动任意带桌面入口的远控、云电脑或串流 App。
+## 先找你要的功能
 
-仓库同时收录彼此独立的 Clash Meta 保活方案、恢复悬浮原生安装界面并保护源 APK 的
-Installer Fix，以及防止厂商 Google 专项省电策略在 Android VPN 活跃时误封 Play/GMS 的
-GMS Optimizer Guard。它们都不是 F9 功能的安装前提。
+| 想解决的问题 | 组件 | 当前版本 | 需要什么 |
+|---|---|---:|---|
+| F9 打开自己选的远控、云电脑或串流 App | `com.zte.mobile` F9 选择器 | 1.8（versionCode 9） | ADB；设置模式时需要 Root |
+| 开机直接进 MiFavor，不显示模式选择页 | [默认平板 APM](apm/zte_w200ds_tablet_boot/) | 1.3.0（versionCode 4） | APatch |
+| Clash Meta 被系统杀掉后自动恢复 VPN | [Clash Meta Watchdog](docs/CLASH-META-WATCHDOG.md) | 1.0.2（versionCode 3） | APatch，加上设备端白名单设置 |
+| 恢复原生悬浮安装界面，并保留源 APK | [Installer Fix](docs/INSTALLER-FIX.md) | 1.4（versionCode 5） | Vector/LSPosed |
+| Clash/VPN 开着时，避免厂商策略误封 Play/GMS | [GMS Optimizer Guard](xposed/zte_gms_optimizer_guard/INSTALL.md) | 0.1.0（versionCode 1） | Vector/LSPosed，严格固件校验 |
+| 在平板上跑 ARM64 Ubuntu Server | [Ubuntu/KVM 工具](docs/UBUNTU-KVM.md) | Ubuntu 26.04 LTS；QEMU 11.0.3 | Termux、APatch Root、KVM |
 
-仓库还保存通过 Termux、APatch Root 和 QEMU/KVM 运行 ARM64 Ubuntu Server 的设备端与 Mac 端管理脚本。Ubuntu VM 与 F9、VPN、安装器和 GMS 模块完全独立，不安装 VM 也不影响其他组件。
+F9 选择器和默认平板 APM 是一组，但也能分开用：
 
-当前组合版本：
+- 只装 APK：F9 可以自定义，开机模式选择页仍可能出现。
+- 只装 APM：开机默认进平板模式，但没有自定义 F9 列表，也处理不了“云电脑状态直接重启”。
+- 两个都装：就是目前真机验证过的完整 F9/默认平板方案。
 
-- F9 应用选择器：**1.8**（versionCode 9）
-- APatch 默认平板模块：**1.3.0**（versionCode 4）
-- 可选 Clash Meta VPN 守护模块：**1.0.2**（versionCode 3）
-- 可选 Installer Fix：**1.4**（versionCode 5）
-- 可选 GMS Optimizer Guard：**0.1.0**（versionCode 1）
-- Ubuntu/KVM 工具：Ubuntu Server **26.04 LTS ARM64**，已验证 QEMU **11.0.3**
+## 兼容范围
 
-各组件都只在 **ZTE W200DS / Android 13 当前固件**上完成真机验证。GMS Optimizer Guard
-还有更严格的运行门：设备必须报告内部型号 `P720P01`、SDK 33、incremental
-`20250218.231611` 和源码中固定的完整 fingerprint；任一项不符都会保持不挂钩。其他批次、
-型号和 OTA 后的固件必须重新确认厂商组件与属性。
+目前的真机结果来自 **ZTE W200DS / P720P01、Android 13 当前固件**。W202DS 我没有直接拿到机器测试；它和 W200DS 的固件通用，但这里仍按“未实机验收”处理。
 
-## 最终效果
+GMS Optimizer Guard 的限制更严：设备必须报告内部型号 `P720P01`、SDK 33、incremental `20250218.231611`，并命中源码里固定的完整 fingerprint。任意一项不符，模块都会保持不挂钩。
 
-- 平板状态开机：直接进入 MiFavor，不显示模式选择。
-- 云电脑状态重启：开机完成后自动恢复并显示 MiFavor。
-- 平板状态短按 F9：进入自定义应用选择器。
-- 选择任意已安装的远控或云电脑 App；列表可随时编辑并跨重启保存。
-- 再短按 F9：通过原厂状态机返回平板 HOME，同时恢复原厂输入映射。
-- 取消选择或目标 App 启动失败：提供“返回平板模式”路径。
-- 可选恢复悬浮安装确认/成功页，跳过失效厂商扫描，并保留用户源 APK。
-- 可选在 Clash 等 Android VPN 活跃时阻止 `zte_fw_gms` 误封 Google Play/GMS；代码设计为在
-  VPN 停止后保留 30 秒切换宽限，再恢复原厂专项省电入口，该恢复门尚未完成实机验收。
-- 可选通过真实 KVM 加速运行无 GUI 的 Ubuntu Server 26.04，并从平板或 Mac 使用同一个 `u26` 中文入口启动、连接、检查和正常关机。
-- 不改 system 分区，不替换厂商 APK；F9/默认平板组合不需要 LSPosed，可选 Installer Fix
-  与 GMS Optimizer Guard 需要 Vector/LSPosed，且作用域完全不同。
+不同批次、其他型号以及 OTA 后的固件，都应该重新确认厂商 Launcher、Provider、属性和 Hook 目标。已有测试记录在 [docs/TESTING.md](docs/TESTING.md)。
 
-## 组成
+## F9 + 默认平板：最常用的一套
 
-| 组件 | 作用 |
-|---|---|
-| `com.zte.mobile` APK | 占用固件在 `pc_switch_mode=0` 时保留的固定入口，显示自定义 App 列表 |
-| APatch APM | 只覆盖开机模式选择属性，不停用 USmart Launcher |
-| 原厂 USmart Launcher / Provider | 继续负责 HOME 状态和触控、鼠标模式切换 |
-| 可选 Clash Meta Watchdog APM | 监测 Clash 自己的运行意图，并在白名单之外的意外死亡后兜底恢复 VPN 服务 |
-| 可选 Installer Fix | 只 Hook `com.android.packageinstaller/0`，恢复悬浮安装流程并保护源 APK |
-| 可选 GMS Optimizer Guard | 只 Hook `system/0` 中经过精确固件门校验的 `GoogleOptimizer`，VPN 活跃时阻止 Google UID 防火墙误封 |
-| 可选 Ubuntu/KVM 工具 | 用 Root QEMU 访问原厂权限不变的 `/dev/kvm`，以 SSH-first 方式运行 ARM64 Ubuntu Server |
+装好以后：
 
-F9 选择器与默认平板 APM 解决的问题不同：
+- 开机直接进入 MiFavor，不再先问“平板模式 / 云电脑模式”。
+- 短按 F9 打开自定义应用列表。
+- 再按一次 F9，通过原厂状态机回到平板 HOME，同时恢复原厂输入映射。
+- 选中的应用列表会保存在应用自己的私有数据里，重启后还在。
+- 取消选择或目标 App 启动失败时，仍然可以返回平板模式。
 
-- 只装 APK：F9 可以自定义，但开机模式选择页仍可能出现。
-- 只装 APM：开机默认平板，但没有自定义 F9 应用列表，也无法处理“云状态直接重启”。
-- 两者同时安装：得到本项目当前已验证的组合行为；具体范围和未覆盖项目见 [docs/TESTING.md](docs/TESTING.md)。
-
-Clash Meta 守护模块是独立的可选组件，不参与 F9 或 HOME 切换。当前固件上需要同时锁定 Clash 最近任务卡片，并把 Clash 精确加入中兴 `used_module=6` 的“仅移除任务”窄白名单：前者阻止第一条 Force-stop 清理链，后者阻止 Launcher 的第二条直接 `SIGKILL` 清理链。Android 的“始终开启 VPN”（不启用阻止非 VPN 连接）作为系统层保护，守护则只在 Clash for Android/Meta 自己的 `service_running.lock` 运行标记仍存在、且包未被 Force stop 时兜底恢复 `TunService`。因此应用内正常 Stop 和系统设置里的强行停止都会被尊重；只有兜底恢复时才会出现数秒断流。完整安装、验证和回滚见 [docs/CLASH-META-WATCHDOG.md](docs/CLASH-META-WATCHDOG.md)。
-
-GMS Optimizer Guard 也是独立可选组件。取证确认 `zte_fw_gms` 由运行在 `system_server`
-中的 ZTE `GoogleOptimizer` 创建：它会把非 HTTP/TLS 的 Google 可达性判断直接转换成
-Play/GMS UID 的 IPv4/IPv6 `OUTPUT` DROP，因而可能在 Clash 节点本身正常时把 Google Play
-长期封死。模块仅在 Android VPN 活跃及断开后的 30 秒宽限内让厂商策略保持放行；VPN 长期
-关闭时重新进入原厂决策入口，普通 Doze、App Standby 和其他应用的后台策略不受影响。
-这是高风险的 `system_server` Hook，唯一作用域必须是 `system/0`，不是 `android/0`。
-完整策略、安装、真机证据和回滚见
-[xposed/zte_gms_optimizer_guard/INSTALL.md](xposed/zte_gms_optimizer_guard/INSTALL.md)，规则来源见
-[docs/GMS-FIREWALL-FORENSICS.md](docs/GMS-FIREWALL-FORENSICS.md)。
-
-Installer Fix 也是独立可选组件。它复用当前固件保留的 AOSP/CTS 安装确认 Activity，
-不替换系统安装器，也不绕过 Android 的签名、未知来源和用户确认。跳过的是中兴附加、
-但本机依赖组件已缺失的云信誉/反诈层；代价是失去这层额外风险信号。调查证据、
-作用域、真机测试和回滚见 [docs/INSTALLER-FIX.md](docs/INSTALLER-FIX.md)。
-
-Ubuntu/KVM 工具同样是独立可选组件。它不修改 system 分区、不放宽 SELinux 或 `/dev/kvm` 权限，也不设置开机自启；设备端和 Mac 端都使用 `u26` 作为日常入口。完整准备、私密文件边界、验收和恢复要求见 [docs/UBUNTU-KVM.md](docs/UBUNTU-KVM.md)。
-
-## 工作原理
-
-W200DS 键盘 F9 的 Android keycode 是 `307`（`LAUNCHER_SWITCH`，观察到的扫描码为 `250`）。固件策略层直接拦截该键，先切换厂商输入模式，再调用 USmart Launcher 的模式切换逻辑；普通按键映射 App 无法在应用层接管它。
-
-当 `Settings.System` 中的 `pc_switch_mode=0` 时，固件会显式启动：
+这里没有替换系统 APK，也没有停用 USmart Launcher。选择器借用了固件在 `pc_switch_mode=0` 时保留的固定入口：
 
 ```text
 com.zte.mobile/com.zte.mspice.ui.WelcomeActivity
 ```
 
-本项目用一个公开 `activity-alias` 提供该固定组件名，真正实现选择器的 `PcChooserActivity` 保持 `exported=false`。
+对外公开的只是这个固定 `activity-alias`，真正的 `PcChooserActivity` 仍是 `exported=false`。
 
-返回平板模式时，选择器调用原厂 Provider：
+W200DS 的 F9 keycode 是 `307`（`LAUNCHER_SWITCH`，观察到的扫描码为 `250`）。返回平板模式时，应用调用原厂 Provider 的 `switch_pad`：
 
 ```text
 content://com.zte.usmartlauncher.defaulthome
 method: switch_pad
 ```
 
-这样由厂商状态机同步恢复 HOME 和输入映射，不是简单地强行启动桌面。
-
-APatch 模块只覆盖：
+默认平板 APM 只覆盖这一项属性：
 
 ```properties
 ro.vendor.feature.zte_feature_show_smart_launcher_when_boot=false
 ```
 
-这会抑制开机模式选择页，但保留 USmart Activity 和 F9 链路。模块结构遵循 [APatch APM 文档](https://apatch.dev/zh_CN/apm-guide.html)。
+这样可以隐藏开机模式选择页，同时保留 USmart Activity 和 F9 链路。开机 HOME 的状态判断、一次性验证和异常处理见 [docs/W200DS-ADAPTATION.md](docs/W200DS-ADAPTATION.md)。
 
-APK 的 `BOOT_COMPLETED` 接收器会为当前开机创建一次性恢复会话。如果持久化 HOME 明确是 USmart，它**最多调用一次**双向 `switch_mode` 拉起 MiFavor。无论接收器最初看到的是 USmart 还是 MiFavor，都会安排一个最早约 10 秒后执行的私有单次验证，以覆盖中兴固件更晚的异步 HOME 写入。
+### 权限
 
-验证任务只有在“仍是本次开机会话、未被 F9 取消”，并且连续两次确认 `secure default_home=MiFavor`、实际 HOME resolver 却仍是 USmart 这个精确半状态时，才调用单向 `switch_pad` 固化系统 HOME；其他状态全部只消费任务并退出。F9 选择器在显示前就会作废本次恢复会话。当前固件的 `switch_pad` 不启动 Activity，真机在其他 App 前台调用也不会抢走界面。这个 Alarm 是免额外权限的 inexact alarm，系统可能晚于 10 秒投递。
-
-如果系统无法读取 `Settings.Global.BOOT_COUNT`，接收器会安全跳过自动恢复，不会跨开机猜测或复用旧会话；当前实测的 W200DS 固件可以正常读取该值。
-
-更完整的固件观察和设计取舍见 [docs/W200DS-ADAPTATION.md](docs/W200DS-ADAPTATION.md)。
-
-## F9 选择器的权限与安全边界
-
-Manifest 中唯一的 Android 权限是：
+F9 选择器唯一申请的 Android 权限是：
 
 ```text
 android.permission.RECEIVE_BOOT_COMPLETED
 ```
 
-应用通过 Android 11+ 的 `<queries>` 只声明可见的 `MAIN/LAUNCHER`、`MAIN/HOME` Activity 和中兴 Provider，不再申请 `QUERY_ALL_PACKAGES`。
+它没有网络、Root、无障碍、悬浮窗、存储或设备管理权限，也没有常驻服务。可选应用列表只保存在私有 `SharedPreferences` 中。
 
-应用不申请：
+### 安装前先记下原值
 
-- 网络权限
-- Root 权限
-- 无障碍权限
-- 悬浮窗权限
-- 存储权限
-- 设备管理权限
+你需要一台已经解锁 Bootloader、能用 ADB 和 Root 的 W200DS，并保留原厂 `com.zte.usmartlauncher`。
 
-它也没有常驻服务。所选应用列表只保存在 APK 私有的 `SharedPreferences` 中。
-
-## F9 / 默认平板前提
-
-- 中兴 W200DS，Bootloader 已解锁。
-- 已能通过 ADB 连接。
-- 已有可用 Root；默认平板模块按 APatch APM 格式提供。
-- 原厂 `com.zte.usmartlauncher` 仍存在。
-
-安装前先记录本机原值。不同固件可能是 `1`、`4` 或其他值，不要把别人的值当成自己的恢复值：
+先执行下面两条，把结果记下来。`pc_switch_mode` 在不同固件上可能是 `1`、`4` 或其他值，回滚时必须使用你自己机器的原值。
 
 ```bash
 adb shell settings get system pc_switch_mode
 adb shell settings get secure default_home
 ```
 
-## 构建 APK
+### 构建
 
-需要 JDK 17、`zip`、`unzip`、Android SDK platform，以及 Android build-tools `35.0.0`。`sdkmanager` 由 Android 官方 [Command-line Tools](https://developer.android.com/tools) 提供。推荐：
+F9 APK 需要 JDK 17、`zip`、`unzip`、Android SDK platform 33 和 build-tools `35.0.0`。`sdkmanager` 来自 Android 官方 [Command-line Tools](https://developer.android.com/tools)。下面的 `apt` 命令适用于 Debian/Ubuntu；macOS 请按本机方式准备这些依赖。
 
 ```bash
 sudo apt install openjdk-17-jdk-headless zip unzip
@@ -162,16 +94,27 @@ export ANDROID_SDK_ROOT="$HOME/Android/Sdk"
 ./build.sh
 ```
 
-输出位于：
+输出：
 
 ```text
 build/outputs/zte-w200ds-f9-app-chooser-v1.8.apk
 build/outputs/zte-w200ds-f9-app-chooser-v1.8.apk.sha256
 ```
 
-首次本地构建会在 `signing/` 生成仅供侧载测试的 debug keystore，该目录已被 Git 忽略。不同 clone 自动生成的密钥不同，APK 不能互相覆盖升级。
+默认平板 APM：
 
-正式持续发布时应使用离线保存的固定签名：
+```bash
+./scripts/build-apm.sh
+```
+
+输出：
+
+```text
+build/outputs/zte-w200ds-tablet-default-apm-v1.3.0.zip
+build/outputs/zte-w200ds-tablet-default-apm-v1.3.0.zip.sha256
+```
+
+首次构建 F9 APK 时，会在被 Git 忽略的 `signing/` 目录生成 debug keystore。不同 clone 生成的密钥不同，APK 不能互相覆盖升级。要长期发布，请改用离线保存的固定签名：
 
 ```bash
 SIGNING_KEYSTORE=/secure/path/release.jks \
@@ -181,130 +124,46 @@ SIGNING_KEYPASS='your-key-password' \
 ./build.sh
 ```
 
-签名密钥和密码绝不能提交到仓库。
+签名密钥和密码不要提交到仓库。
 
-## 构建 APatch 模块
+### 安装
 
-```bash
-./scripts/build-apm.sh
-```
-
-输出位于：
-
-```text
-build/outputs/zte-w200ds-tablet-default-apm-v1.3.0.zip
-build/outputs/zte-w200ds-tablet-default-apm-v1.3.0.zip.sha256
-```
-
-模块源码和独立说明在 [apm/zte_w200ds_tablet_boot](apm/zte_w200ds_tablet_boot/)。
-
-可选的 Clash Meta VPN 守护模块使用独立构建脚本：
-
-```bash
-./scripts/build-clash-watchdog-apm.sh
-```
-
-输出位于：
-
-```text
-build/outputs/clash-meta-vpn-watchdog-w200ds-v1.0.2.zip
-build/outputs/clash-meta-vpn-watchdog-w200ds-v1.0.2.zip.sha256
-```
-
-模块源码在 [apm/clash_meta_watchdog](apm/clash_meta_watchdog/)。
-
-## 构建 Installer Fix
-
-Installer Fix 使用同一套 JDK/Android SDK 依赖：
-
-```bash
-./scripts/build-installer-fix.sh
-```
-
-输出位于：
-
-```text
-build/outputs/zte-installer-fix-v1.4.apk
-build/outputs/zte-installer-fix-v1.4.apk.sha256
-```
-
-模块源码、签名升级注意事项和独立构建说明在
-[xposed/zte_installer_fix](xposed/zte_installer_fix/)。
-
-## 构建 GMS Optimizer Guard
-
-该模块保持为独立 Gradle 子项目，需要 JDK 17 或 21、Gradle 8.9、Android SDK 33，首次构建
-还需要解析 Android Gradle Plugin 8.7.3 和 JUnit 4.13.2：
-
-```bash
-export ANDROID_SDK_ROOT="$HOME/Library/Android/sdk"  # macOS 示例；Linux 按实际路径设置
-cd xposed/zte_gms_optimizer_guard
-gradle clean testDebugUnitTest lintRelease assembleRelease
-./tools/verify-release.sh app/build/outputs/apk/release/app-release.apk
-```
-
-已缓存依赖时可增加 `--offline`。输出位于：
-
-```text
-xposed/zte_gms_optimizer_guard/app/build/outputs/apk/release/app-release.apk
-```
-
-当前 release 变体仍使用本机 Android debug key，只适合本地侧载；覆盖升级必须使用与设备上
-现有模块相同的签名，密钥和 APK 都不得提交仓库。
-
-## 安装 Installer Fix
-
-```bash
-adb install -r build/outputs/zte-installer-fix-v1.4.apk
-```
-
-在 Vector/LSPosed 中启用后，只勾选 `com.android.packageinstaller/0`，不要勾选
-“系统框架”。强行停止一次“软件包安装程序”或重启设备后再测试安装。
-
-## 安装 GMS Optimizer Guard
-
-这是 `system_server` 模块，错误作用域或固件失配的风险明显高于普通应用模块。安装前必须准备
-Android 安全模式或 recovery 救援路径，并逐项核对 fingerprint、Vector 状态、签名和 APK 哈希。
-唯一正确作用域是 `system/0`。不要把根 README 的简述当作执行清单；请完整遵循
-[xposed/zte_gms_optimizer_guard/INSTALL.md](xposed/zte_gms_optimizer_guard/INSTALL.md)。
-
-## 安装 F9 / 默认平板组合
-
-1. 重新启用原厂 USmart 主 Activity。此前为了跳过开机选择而停用过它的设备尤其需要这一步：
+1. 重新启用原厂 USmart 主 Activity。以前为了跳过选择页而停用过它的设备尤其要做这一步。
 
 ```bash
 adb shell su -c 'pm enable --user 0 com.zte.usmartlauncher/.activity.UsmartMainActivity'
 ```
 
-2. 安装或升级选择器：
+2. 安装或升级 F9 选择器。
 
 ```bash
 adb install -r build/outputs/zte-w200ds-f9-app-chooser-v1.8.apk
 ```
 
-3. 把 F9 指向固件的自定义空槽：
+3. 把 F9 指向固件的自定义空槽。
 
 ```bash
 adb shell su -c 'settings put system pc_switch_mode 0'
 ```
 
-4. 在 APatch 管理器中安装 `zte-w200ds-tablet-default-apm-v1.3.0.zip`，然后重启。
+4. 在 APatch 管理器里安装 `zte-w200ds-tablet-default-apm-v1.3.0.zip`，然后重启。
 
-5. 重启后短按一次 F9，确认选择器正常出现。首次显式启动也会解除 Android 对新装应用的 stopped 状态，之后才能正常收到开机广播。
+5. 重启后短按一次 F9，确认选择器能正常出现。第一次显式启动也会解除 Android 对新装应用的 stopped 状态，之后它才能收到开机广播。
 
-## 使用
+### 怎么用
 
 - F9 打开“F9 云模式：选择要启动的应用”。
-- “编辑可选应用…”会列出所有带 `MAIN/LAUNCHER` 入口的已安装 App。
-- 勾选并保存后，设置跨重启保留。
-- “返回平板模式”、返回键或点对话框外部都会请求原厂 `switch_pad`。
+- 点“编辑可选应用…”选择带 `MAIN/LAUNCHER` 入口的 App。
+- 点“返回平板模式”、按返回键或点对话框外部，都会请求原厂 `switch_pad`。
 - 进入目标 App 后，再按 F9 返回平板模式。
 
-`pc_switch_mode` 必须保持为 `0`，否则固件会绕过本选择器。
+`pc_switch_mode` 必须保持为 `0`，否则固件会绕过这个选择器。
 
-## F9 / 默认平板组合回滚
+### 恢复原状
 
-先恢复安装前记录的本机原值。下面的 `RECORDED_VALUE` 只是占位符，不能原样执行：
+先把 `pc_switch_mode` 恢复成安装前记下的值。下面的 `RECORDED_VALUE` 是占位符，**不能原样执行**。
+
+`adb uninstall com.zte.mobile` 会清空选择器数据。如果设备上原本就有同名包，不要直接照抄，先确认包的来源并备份需要保留的内容。
 
 ```bash
 adb shell su -c 'settings put system pc_switch_mode RECORDED_VALUE'
@@ -313,67 +172,74 @@ adb shell su -c 'touch /data/adb/modules/zte_w200ds_tablet_boot/disable'
 adb reboot
 ```
 
-如果安装前读到的是 `null`，第一行应改为：
+如果安装前读到的是 `null`，第一行改成：
 
 ```bash
 adb shell su -c 'settings delete system pc_switch_mode'
 ```
 
-重启后 APatch 属性覆盖失效，原厂开机逻辑恢复。模块目录仍保留，可以在 APatch 管理器中重新启用或彻底删除。
+重启后 APatch 的属性覆盖就会失效，原厂开机逻辑恢复。模块目录仍会保留，可以在 APatch 管理器里重新启用或删除。
 
-可选的 Clash Meta 守护、厂商窄白名单、最近任务锁定与 Always-on VPN 有独立回滚流程；请不要用上述 F9 命令代替。详见 [docs/CLASH-META-WATCHDOG.md](docs/CLASH-META-WATCHDOG.md#暂停卸载与回滚)。
+## 其他工具
 
-## 已知边界
+### Clash Meta Watchdog
 
-- 实体 F9 短按与 `adb shell input keyevent 307` 走相同 keycode 分支；长按行为仍由固件控制，本项目没有重映射长按。
-- 如果在系统设置中“强行停止”选择器，Android 会在下次显式启动前阻止开机广播。短按一次 F9 打开它即可解除 stopped 状态。
-- Android 或中兴省电策略可能延迟 `BOOT_COMPLETED`；出现问题时把选择器电池策略保持为“优化”或“不受限制”。
-- 开机 HOME 验证使用免特殊权限的 inexact alarm；“约 10 秒”是最早触发时间，省电或系统批处理可能让它更晚执行。
-- “可选择任意 App”只代表能启动其 LAUNCHER Activity，不保证目标 App 自身适配横屏、右键、滚轮或中兴输入映射。
-- OTA 可能替换 Launcher、Provider 或属性。升级后应重新执行 [docs/TESTING.md](docs/TESTING.md) 中的关键测试。
-- 若已有不同签名的 `com.zte.mobile`，Android 不允许直接覆盖；卸载前先确认其中是否有需要保留的数据。
-- Clash Meta 守护只能在进程被杀后重建 VPN，无法保留旧 TCP/UDP 会话；恢复窗口内会有数秒断流。
-- 守护依赖当前 Clash Meta 包名、导出的控制 Activity 和运行标记路径；升级 Clash 后应按 [docs/CLASH-META-WATCHDOG.md](docs/CLASH-META-WATCHDOG.md) 重新验证。
-- Installer Fix 依赖当前固件的私有安装器类名和资源名；系统 OTA 后必须按
-  [docs/INSTALLER-FIX.md](docs/INSTALLER-FIX.md) 重新验证，失配时应停用而不是扩大作用域。
-- Installer Fix 会移除中兴附加的云信誉/反诈结果，但不会提供替代恶意软件扫描；
-  应只安装可信来源并核验签名/哈希的 APK。
-- GMS Optimizer Guard 只识别 Android `VpnService` 暴露的 VPN transport；未注册为 Android VPN
-  的 root TUN/TProxy 不在当前检测范围。
-- GMS Optimizer Guard 会在 VPN 活跃时暂停 Google 专项网络 DROP、特殊闹钟对齐和相关冻结，
-  以功能优先；无法同时冻结/封锁 GMS 又保证 Play 完全可用。
-- 当前已通过模块安全加载、15 分钟窗口、Play/GMS UID HTTP 204、Google Play 更新页/搜索/详情页；
-  真实下载/更新、VPN 断开后的 30 秒恢复、70 分钟守护和 8–24 小时功耗 A/B 仍未完成。
-- Ubuntu/KVM 当前只验证 2 vCPU、1536 MiB、64 GiB 稀疏盘和 SSH-first 运行；没有 GPU 加速、自动启动或完整桌面验收。
+这个 APM 只管 Clash for Android/Meta 意外退出，不参与 F9 或 HOME 切换。当前固件还要配合三项设置：
+
+- 锁定 Clash 的最近任务卡片。
+- 把 Clash 加进中兴 `used_module=6` 的“仅移除任务”窄白名单。
+- 打开 Android 的“始终开启 VPN”，但不要打开“阻止不使用 VPN 的连接”。
+
+从应用内正常 Stop，或在系统设置里“强行停止”，都不会被重新拉起。只有进程意外死亡时才会兜底恢复；旧连接保不住，中间会断流几秒。
+
+构建用 `./scripts/build-clash-watchdog-apm.sh`。完整安装、验证和回滚见 [docs/CLASH-META-WATCHDOG.md](docs/CLASH-META-WATCHDOG.md)。
+
+### Installer Fix
+
+Installer Fix 的作用域固定在 `com.android.packageinstaller/0`。它把固件里还在的 AOSP/CTS 安装界面重新接回来，Android 的签名、未知来源和用户确认照常保留。
+
+当前已测固件上的中兴云信誉/反诈层缺少依赖组件，因此会被跳过；代价是失去这层额外风险信号。只安装可信来源并核验过签名或哈希的 APK。
+
+构建用 `./scripts/build-installer-fix.sh`。作用域、安装、真机结果和回滚见 [docs/INSTALLER-FIX.md](docs/INSTALLER-FIX.md)。
+
+### GMS Optimizer Guard
+
+在当前固件上查到，ZTE `GoogleOptimizer` 可能会通过 `zte_fw_gms`，把 Play/GMS 的 IPv4/IPv6 流量挡在 VPN 之前。这也是为什么 Clash 节点本身正常，Google Play 仍可能一直连不上。
+
+模块只在 Android VPN 活跃以及断开后的 30 秒宽限内阻止这套 Google 专项策略重新落下。它识别的是 Android `VpnService` 暴露的 VPN transport；没有注册成 Android VPN 的 root TUN/TProxy 不一定会触发保护。VPN 活跃时，Google 专项网络限制、闹钟对齐和相关冻结会暂停，这是可用性和专项省电之间的取舍。
+
+模块运行在 `system_server`，风险比普通应用高。作用域只能选 `system/0`，不能选 `android/0`；安装前先准备好 Android 安全模式或 recovery 救援路径。完整清单见 [INSTALL.md](xposed/zte_gms_optimizer_guard/INSTALL.md)，规则来源见 [GMS-FIREWALL-FORENSICS.md](docs/GMS-FIREWALL-FORENSICS.md)。
+
+### Ubuntu/KVM
+
+这套脚本通过 Termux、Root QEMU 和 `/dev/kvm` 运行无 GUI 的 Ubuntu Server 26.04。它沿用原厂的 KVM 权限和 SELinux 策略，不改 system 分区，也不设开机自启。设备端和 Mac 端都用 `u26` 作为日常入口；私钥、VM 镜像、恢复点和运行状态留在本地。
+
+准备、安装、验收和恢复步骤见 [docs/UBUNTU-KVM.md](docs/UBUNTU-KVM.md)。
+
+## 已知限制
+
+- F9 长按仍由固件控制；本项目只处理短按。
+- 如果在系统设置里“强行停止”选择器，Android 会阻止它接收开机广播，直到你再次短按 F9 显式启动。
+- 开机 HOME 验证使用 inexact alarm，“约 10 秒”只是最早触发时间，省电或系统批处理可能让它更晚。
+- 能启动一个 App，不代表这个 App 一定适配横屏、右键、滚轮或中兴输入映射。
+- 已有不同签名的 `com.zte.mobile` 时不能直接覆盖；卸载前先确认旧应用里有没有要保留的数据。
+- OTA 可能改变 Launcher、Provider、属性或私有类名，升级后应重新跑关键测试。
+- GMS Optimizer Guard 能正常加载，Play/GMS 的 UID HTTP 204 以及 Play 更新页、搜索、详情页都测过了。真实下载/更新、VPN 断开 30 秒后的恢复、70 分钟守护和 8–24 小时功耗对比还没跑完。
+- Ubuntu/KVM 目前只验证了 2 vCPU、1536 MiB、64 GiB 稀疏盘和 SSH-first 运行，没有 GPU 加速、自动启动或完整桌面验收。
 
 ## 仓库结构
 
 ```text
 .
-├── AndroidManifest.xml
+├── AndroidManifest.xml              # F9 选择器
 ├── build.sh
 ├── src/com/zte/mobile/
-│   ├── PcChooserActivity.java
-│   └── TabletBootReceiver.java
-├── apm/zte_w200ds_tablet_boot/
-├── apm/clash_meta_watchdog/
-├── xposed/zte_installer_fix/
-├── xposed/zte_gms_optimizer_guard/
-├── scripts/build-apm.sh
-├── scripts/build-clash-watchdog-apm.sh
-├── scripts/build-installer-fix.sh
-├── tools/ubuntu-kvm/
-│   ├── device/
-│   ├── macos/
-│   ├── cloud-init/
-│   └── tests/
-├── docs/W200DS-ADAPTATION.md
-├── docs/CLASH-META-WATCHDOG.md
-├── docs/INSTALLER-FIX.md
-├── docs/GMS-FIREWALL-FORENSICS.md
-├── docs/UBUNTU-KVM.md
-├── docs/TESTING.md
+├── apm/                             # 默认平板和 Clash Watchdog
+├── xposed/                          # Installer Fix 和 GMS Guard
+├── scripts/                         # 构建脚本
+├── tools/ubuntu-kvm/                # Ubuntu/KVM 设备端与 Mac 端工具
+├── docs/                            # 安装、取证、测试和回滚说明
 └── CHANGELOG.md
 ```
 
-发布前检查清单和本次真机结果见 [docs/TESTING.md](docs/TESTING.md)。
+各组件的安装和回滚都在对应文档里；F9/默认平板的测试范围和发布检查见 [docs/TESTING.md](docs/TESTING.md)。
